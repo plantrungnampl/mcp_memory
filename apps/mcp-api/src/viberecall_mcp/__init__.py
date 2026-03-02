@@ -1,0 +1,1 @@
+"""VibeRecall MCP backend package."""

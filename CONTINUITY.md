@@ -1,0 +1,329 @@
+# CONTINUITY.md (Canonical)
+## Goal
+- Implement the initial VibeRecall monorepo bootstrap from the local spec.
+- Deliver an MCP backend skeleton and a Next.js control-plane shell using the latest stable stack.
+
+## Constraints
+- Keep a single canonical ledger in this file.
+- Query existing graph memory before project-related work.
+- For Next.js work, consult official Next.js 16 docs via next-devtools before coding.
+- Preserve facts only; mark uncertain items as UNCONFIRMED.
+
+## Key decisions
+- `viberecall_spec_md/` is the authoritative local design package for VibeRecall Pro system design v0.1.
+- No existing `CONTINUITY.md` was present at the project root, so this file is created as the canonical ledger.
+- Bootstrap target is a monorepo with `apps/mcp-api` and `apps/web`.
+- Frontend implementation follows Next.js 16 App Router patterns from official docs, even if some spec text still references older wording.
+- Root workspace dependencies were installed successfully with `pnpm`, and the workspace lockfile is now generated at the repository root.
+- The next implementation milestone follows the spec Definition of Done: finish the MCP memory core before returning to dashboard mutations.
+- Memory core implementation will use a Neo4j-compatible adapter boundary with local fallbacks in development/testing to keep the repo runnable without external services.
+- Backend MCP transport now uses native `FastMCP` Streamable HTTP mounted under FastAPI, while keeping custom PAT auth and path-bound tenant enforcement in FastMCP middleware.
+- The current runtime remains local fallback-based behind stable interfaces; real Neo4j/Redis/Celery services are the next backend milestone after transport normalization.
+- Runtime backend selection now uses explicit selectors: `MEMORY_BACKEND`, `KV_BACKEND`, and `QUEUE_BACKEND`, instead of implicit fallback booleans.
+- Real backend path is now implemented for Neo4j, Redis, and Celery while preserving the same MCP tool contracts and FastMCP transport.
+- Backend settings now resolve the repository-root `/.env` first, then fall back to `apps/mcp-api/.env`, so local runs from `apps/mcp-api` use the canonical root env file.
+- Day 5 control-plane mutation slice uses Next.js Server Actions as BFF to call backend control-plane endpoints.
+- Backend control-plane endpoints are now protected with internal headers (`X-Control-Plane-Secret`, `X-Control-Plane-User-Id`) instead of open read access.
+- Token rotation semantics use `revoked_at` as the effective invalidation time; `revoked_at > now` is treated as grace-period valid.
+- MCP endpoint previews are now built from `PUBLIC_MCP_BASE_URL` instead of request host inference.
+- Usage rollup API (`daily`/`monthly`) is now part of control-plane and consumed by `/projects`.
+- Stripe webhook endpoint is implemented with signature verification and project plan update mapping for supported subscription events.
+- Stripe webhook handling is now persistence-backed and idempotent by `provider + event_id`, with retry-safe reprocessing for previously `failed` events.
+- Stripe webhook duplicate handling now rejects tampered duplicates (`same event_id` + different `payload_hash`) with conflict response.
+- Runtime integration testing moved from placeholder to real opt-in Neo4j + Redis roundtrip validation.
+- CI baseline exists at `.github/workflows/ci.yml` for backend tests and web typecheck/lint/build.
+- Onboarding docs surface is now available at `/docs` and linked from landing page.
+- MCP HTTP tests now cover Celery queue path and assert task `job_id` propagation in `save`/`update_fact` responses.
+- Added an opt-in end-to-end runtime test that exercises FastMCP -> Celery worker -> Neo4j/Redis/Postgres flow with real async job completion checks.
+- `MEMORY_BACKEND=graphiti` now routes through a dedicated Graphiti adapter boundary while preserving canonical Neo4j fact/entity schema behavior for tool contracts.
+- Export pipeline is now implemented end-to-end (export records, worker export job, JSON v1 artifact generation, signed download URLs, and control-plane export endpoints).
+- Observability baseline now includes additional Prometheus metrics for queue depth, worker job duration, graph DB latency, and per-project token burn gauge.
+- `/projects` web control-plane now includes export management UX (create/list/status/download) with auto polling every 5s for running exports.
+- Web UI now uses `sonner` toaster notifications for export action feedback while preserving server-rendered inline status messages.
+- Data deletion semantics now run through dedicated maintenance jobs: retention run + purge project endpoints enqueue worker jobs, clean Postgres/object artifacts, and purge tenant graph state.
+- Raw episode storage now follows threshold policy: inline under size limit, object storage (`local|r2`) above threshold with `content_ref`, plus queue-backed inline migration tooling.
+- Added dependency `boto3==1.42.58` for R2/S3-compatible object storage integration in raw episode pipeline.
+- `/projects` maintenance UX now follows explicit safety policy: purge requires type-to-confirm `project_id`, and migrate-inline-to-object exposes optional `force=true` as an advanced toggle.
+- `DATABASE_URL` for backend runtime now keeps the same password but uses URL-encoding for special characters (e.g., `@` -> `%40`) so SQLAlchemy parses host/user/password correctly.
+- Local development routing is now split explicitly: Graphiti MCP remains on `:8000`, while VibeRecall MCP/control-plane runs on `:8010` to avoid endpoint collision.
+- Supabase server-side auth checks on `/projects` now use `auth.getUser()` instead of `auth.getSession()` for authenticated user verification.
+- Supabase `DATABASE_URL` for local runtime now uses Session pooler (IPv4-compatible) with the same password to avoid IPv6-only direct host failures.
+- Codex CLI MCP integration for local VibeRecall now uses a persistent streamable HTTP server entry (`viberecall-local`) with bearer token sourced from `VIBERECALL_MCP_TOKEN` env var.
+- Codex CLI `viberecall-local` auth was switched to hardcoded `Authorization` header in `~/.codex/config.toml` per user preference (no env-var dependency).
+- Neo4j per-project database naming now uses Neo4j-safe identifiers (`-` separators) and admin create/drop statements quote database names.
+- Stitch landing-screen export artifacts are standardized under `ops/artifacts/stitch/<projectId>/<screenId>/` with `screen.png`, `screen.html`, and `manifest.json`.
+- Homepage (`/`) now uses a componentized high-fidelity "Visual Glow" landing architecture derived from Stitch, split into `landing/*` modules and a scoped CSS module.
+- Homepage marketing copy scope is currently locked to Stitch wording (including Pricing/Security/FAQ claims) for parity-driven UI delivery.
+- Temporal Edge right-side panel now follows a cinematic network-graph glow treatment (nodes + edge flows + scan sweep) with adaptive motion reduction on mobile and `prefers-reduced-motion` support.
+- Landing header auth rendering now follows a hybrid client pattern: keep `/` static on server, resolve Supabase user client-side after hydration.
+- Landing header CTA behavior is now explicit: anonymous users see `Sign In` (`/login`), signed-in users see `Projects` (`/projects`) plus an email avatar pill.
+- `/projects` now follows a dedicated dashboard shell (Stitch E2E style) instead of `AppShell`, while preserving existing control-plane actions and auth gate behavior.
+- Control-plane now exposes project-level usage timeseries and owner-scoped project overview aggregates to support dashboard chart/table surfaces without mock data.
+- Stitch dashboard artifacts are standardized under `ops/artifacts/stitch/11423673338136040083/4e597237f12047e9ac73cba639969441/` with `screen.png`, `screen.html`, and `manifest.json`.
+- Project workspace navigation is now path-param based: `/projects/[projectId]/*` replaces query-based selection.
+- Sidebar placeholder items are now real nested routes: `tokens`, `usage`, `billing`, `api-logs`.
+- Control-plane now includes `GET /api/control-plane/projects/{project_id}/billing/overview` and `GET /api/control-plane/projects/{project_id}/api-logs` for full data tabs.
+- `/projects` now reuses the same workspace shell/sidebar as nested project routes, with a sidebar project selector that syncs `?project=` and `localStorage` fallback.
+- Sidebar project switching now keeps users on `/projects` when in directory mode, and preserves the current workspace tab when switching projects inside `/projects/[projectId]/*`.
+- `/projects` directory visual polish: workspace list card palette is now dark-themed (no washed white blocks), and directory topbar no longer shows confusing active-project status text.
+- Sidebar visibility threshold lowered from `xl` to `lg` to avoid accidental hidden sidebar on typical laptop widths/zoom levels.
+- `/projects/[projectId]/tokens` panel cards (Token posture/Usage/Exports/Maintenance) are now dark-themed; legacy light stone palette removed.
+- Graphiti dependency management for `apps/mcp-api` is now standardized on vendored source at `apps/mcp-api/vendor/graphiti` via `tool.uv.sources` local editable path.
+- Vendored Graphiti source is currently aligned to upstream tag `v0.28.1` (commit `76053036e3db086f57444a29c53d427b0d635a80`).
+- Graphiti runtime hardening baseline now requires empty-by-default `GRAPHITI_API_KEY` (no hardcoded secret) and timeout-guarded best-effort sync behavior.
+- Repository root source control is now initialized with Git (`main` branch) for project-wide versioning.
+- Root ignore policy now explicitly excludes local artifacts (`.trash`, `.claude`, runtime object/export dirs, vendored `.git.vendor`) while allowing committed backend lockfile `apps/mcp-api/uv.lock`.
+
+## State
+- Overview, architecture, MCP protocol, auth/tenancy, tools contract, data model, pipelines, pricing, observability, deployment, and error catalog have been reviewed.
+- Technology mentions across the spec have been extracted and grouped.
+- Ambiguities in the spec have been reviewed across transport, storage, pricing, and deployment details.
+- The spec was updated after the initial review with new hard decisions and two appendices for export format and capacity assumptions.
+- Monorepo bootstrap is in progress with `apps/mcp-api` and `apps/web`.
+- Backend skeleton, migrations, seed script, and MCP JSON-RPC transport thin slice have been created.
+- Frontend shell, shared providers, and Supabase SSR wiring are implemented.
+- `/projects` now reads live control-plane metadata from backend HTTP endpoints instead of demo placeholders.
+- MCP core is still incomplete: only `viberecall_save` has a thin slice; search/get_facts/update_fact/timeline are still not backed by a real memory core.
+- MCP core now has real handlers for all 5 tools, backed by a local memory adapter, local idempotency/rate-limit stores, and eager worker fallbacks that match the spec shape.
+- MCP transport has been refactored from a hand-written JSON-RPC FastAPI route to native FastMCP Streamable HTTP using built-in site-packages APIs.
+- Runtime layer now supports both local and real service backends: Neo4j memory core, Redis idempotency/rate limiting, and Celery queue backends.
+- Root `/.env` has been normalized to the selector-based runtime config while preserving the current `DATABASE_URL` value unchanged.
+- Control-plane now supports owner-scoped project and token lifecycle mutations: create project, list tokens, mint token, rotate token, and revoke token.
+- `/projects` now supports real project selection via query param and interactive token lifecycle actions wired through Server Actions.
+- `/projects` now displays daily/monthly usage rollups from control-plane usage API.
+- Root workspace install completed successfully and `pnpm-lock.yaml` exists at the repository root.
+- Generated nested repo artifacts from `apps/web` were moved into `.trash/` to keep the root workspace canonical.
+- Graphiti adapter implementation is now present under backend memory core and wired into runtime selectors.
+- Control-plane now supports export lifecycle endpoints: create/list/get/download signed artifact.
+- Backend now persists export metadata in SQL with migration-backed `exports` table and indexes.
+- Frontend `/projects` now reads export rows from control-plane and surfaces download actions for completed exports.
+- Control-plane now supports maintenance actions for `retention` and `purge` with queue-backed execution and idempotent purge submission.
+- Worker pipeline now includes retention and purge jobs with project-object cleanup plus graph purge wiring through memory-core adapters.
+- Save pipeline now externalizes large raw episode content to object storage and keeps Postgres pointers in `episodes.content_ref`.
+- Backend now includes project-scoped `migrate-inline-to-object` control-plane trigger and worker flow with DB-size threshold gating + force override.
+- Web control-plane `/projects` now includes maintenance controls for retention, purge, and migrate-inline-to-object via Server Actions.
+- Supabase schema migrations `001_init` through `006_episode_object_storage` are now applied successfully via Supabase MCP.
+- Web runtime env now points control-plane traffic to `http://localhost:8010`, preventing `404` from accidentally hitting Graphiti on `:8000`.
+- `/projects` warning path is now hardened: server-side Supabase auth uses `getUser()` (verified removal of `getSession()` usage in web source).
+- Backend DB connectivity now succeeds from local host through Supabase session pooler; control-plane project list no longer fails with `500`.
+- Codex CLI now has a dedicated MCP server entry pointing to the project-scoped local endpoint on `:8010`.
+- Neo4j project persistence path is now compatible with enterprise multi-database naming constraints in local runtime code.
+- Stitch export for landing page screen `9a7d1305e9cb4733835db82447b8be15` is now captured locally as raw image/code + manifest.
+- Web root route (`/`) is now implemented as a long-form visual landing page with Hero, compatibility strip, Features, How It Works, Temporal Edge, Pricing, Security, FAQ, CTA, and Footer sections.
+- Temporal Edge visual panel implementation is now componentized as `knowledge-graph-panel.tsx` with data-driven node/edge topology and scoped CSS animations.
+- Landing header auth controls are now implemented through a dedicated client component that watches Supabase auth state and updates CTA/profile UI live.
+- `/projects` dashboard route now consumes both rollup and timeseries usage data plus owner-scoped overview rows from control-plane API.
+- New Stitch E2E dashboard artifact set is available locally for UI parity handoff (`screen 4e597237f12047e9ac73cba639969441`).
+- `/projects` now acts as a project directory + overview entrypoint, while project-specific operations are moved into nested workspace routes.
+- Workspace shell now lives under `app/projects/[projectId]/layout.tsx` with persistent sidebar/topbar and tab navigation.
+- API logs pagination uses cursor semantics (`id desc`) and backend index `idx_audit_logs_project_id_desc` via migration `007_audit_logs_pagination_index.sql`.
+- `/projects` and `/projects/[projectId]/*` now share a single visual shell/sidebar system, so sidebar navigation remains visible on both route families.
+- `apps/mcp-api` dependency policy is now hardened to enforce vendored local editable Graphiti source under `vendor/graphiti`.
+
+## Done
+- Searched workspace and found the spec package under `viberecall_spec_md/`.
+- Queried graph memory for existing VibeRecall spec context; no relevant stored facts/nodes were found initially.
+- Read `README.md`, `00_overview.md`, and the core spec chapters through `09_deployment_roadmap.md`, plus appendices.
+- Extracted line-specific ambiguity candidates from the spec for implementation review.
+- Re-reviewed the updated spec and identified which ambiguities were resolved versus which internal inconsistencies remain.
+- Initialized next-devtools and read official Next.js docs for installation, Server/Client Components, Route Handlers, Proxy, CSS, and environment variables.
+- Queried graph memory again before implementation continuation and confirmed previously stored VibeRecall facts remain aligned with the current bootstrap target.
+- Generated `apps/web` with Next.js 16 and pinned the initial dependency set.
+- Added `apps/mcp-api` project structure, pinned Python dependencies, and created initial tool registry plus `/p/{project_id}/mcp` route.
+- Ran `pnpm install` at the repository root and generated `pnpm-lock.yaml` for the workspace.
+- Added frontend pages and helpers for `/`, `/login`, `/projects`, `/api/health`, `/auth/callback`, query providers, and Supabase SSR utilities.
+- Added backend control-plane read endpoints for project listing, token preview, and MCP connection details.
+- Replaced demo data in the web projects page with server-side fetches against the backend control-plane API.
+- Ran backend validation: `uv run pytest` passed with `2 passed`.
+- Ran frontend validation: `pnpm typecheck`, `pnpm lint`, and `pnpm build` all passed.
+- Fixed backend DSN defaults to use `postgresql+asyncpg://` and added URL normalization for compatibility.
+- Re-ran backend validation after control-plane changes: `uv run pytest` passed with `6 passed`.
+- Added runtime helpers for plan gating, cursor pagination, idempotency, rate limiting, local memory core, and eager task queue fallbacks.
+- Added worker tasks for ingest and temporal fact updates, plus usage event persistence and episode lifecycle fields.
+- Implemented real MCP handlers for `save`, `search`, `get_facts`, `update_fact`, and `timeline`.
+- Ran backend validation after memory-core implementation: `uv sync`, `python -m py_compile`, and `uv run pytest` all passed, with `10 passed`.
+- Updated `apps/mcp-api/pyproject.toml` to pin `graphiti-core==0.28.1` and source it from `tool.uv.sources` vendored path `vendor/graphiti`.
+- Removed hardcoded `graphiti_api_key` default from backend settings and added `graphiti_add_episode_timeout_seconds` setting for Graphiti sync timeout control.
+- Hardened Graphiti adapter to log disabled state once per project, serialize per-project sync calls, and wrap `add_episode` in timeout-guarded best-effort execution.
+- Added backend guardrail test `tests/test_dependency_policy.py` to enforce vendored local editable Graphiti source configuration.
+- Updated `.env.example` and backend README with Graphiti env/policy guidance, including `GRAPHITI_TELEMETRY_ENABLED=false` recommendation in local dev.
+- Verified local FastMCP site-packages capabilities and refactored the backend to use native `FastMCP.http_app(..., transport="streamable-http")`.
+- Replaced the manual `/p/{project_id}/mcp` JSON-RPC dispatcher with FastMCP tool registration, middleware-based PAT auth, and app-factory mounting.
+- Updated backend tests to initialize MCP sessions, send proper Streamable HTTP headers, and parse SSE-framed JSON-RPC responses.
+- Re-ran backend validation after the FastMCP transport refactor: `uv run pytest` passed with `10 passed`.
+- Added runtime backend selectors plus Redis idempotency/rate limiter implementations, Neo4j database/bootstrap adapter, Celery queue job-id wiring, and local docker-compose services for Neo4j/Redis.
+- Replaced generated/fake queue job IDs in tool handlers with backend queue-derived job IDs and persisted episode job IDs after enqueue.
+- Added unit coverage for runtime selectors, Redis runtime helpers, and Neo4j entity mapping, plus an opt-in runtime integration test placeholder.
+- Re-ran backend validation after the runtime backend milestone: `python -m py_compile` passed and `uv run pytest` passed with `17 passed, 1 skipped`.
+- Updated backend settings loading to prefer the repository root `/.env`, updated README to document that behavior, and normalized the root env selectors to `MEMORY_BACKEND=local`, `KV_BACKEND=local`, `QUEUE_BACKEND=eager`.
+- Re-ran backend validation after env-loading changes: `uv run pytest` passed with `17 passed, 1 skipped`.
+- Added backend control-plane auth dependency and protected all `/api/control-plane/*` routes with internal header validation.
+- Extended backend control-plane API with project/token mutations and owner-scoped queries.
+- Updated token repository logic to support token listing, creation, rotation, revocation, and grace-aware active preview selection.
+- Updated MCP PAT auth to allow tokens in grace (`revoked_at > now`) and reject only when revoke is effective.
+- Added migration `003_control_plane_ownership_and_indexes.sql` for project owner and token query indexes.
+- Added web Server Actions (`create/mint/rotate/revoke`) and rewired `/projects` to selected project + token lifecycle UI.
+- Updated control-plane web API client to server-only user-scoped calls using internal headers.
+- Updated root env templates and docs with `CONTROL_PLANE_API_BASE_URL`, `CONTROL_PLANE_INTERNAL_SECRET`, and `PUBLIC_MCP_BASE_URL`.
+- Re-ran backend validation: `uv run pytest` passed with `18 passed, 1 skipped`.
+- Re-ran frontend validation: `pnpm typecheck`, `pnpm lint`, and `pnpm build` all passed.
+- Added control-plane usage endpoint `GET /api/control-plane/projects/{project_id}/usage?period=daily|monthly`.
+- Added control-plane Stripe webhook endpoint `POST /api/control-plane/stripe/webhook` with HMAC signature validation.
+- Added backend tests for usage endpoint and Stripe webhook processing.
+- Added auth regression tests for token grace-window acceptance (`revoked_at > now`) and revoked-token rejection.
+- Replaced runtime integration placeholder with real opt-in test using Neo4j + Redis.
+- Added migration `004_webhooks.sql` and webhook repository for idempotent Stripe event persistence.
+- Updated webhook route to require `event.id`, dedupe duplicate events, and retry events with previous `failed` status.
+- Added backend tests for Stripe webhook duplicate suppression and failed-event retry path.
+- Added backend test for duplicate Stripe `event.id` with payload mismatch returning conflict.
+- Added MCP transport test to validate Celery queue path returns real task ids over Streamable HTTP.
+- Added opt-in runtime e2e test `tests/test_runtime_e2e_celery.py` for real Celery worker execution path.
+- Added legacy migration helper script `apps/mcp-api/scripts/claim_legacy_projects.py`.
+- Added CI workflow `.github/workflows/ci.yml`.
+- Added onboarding page `/docs` and linked it from landing.
+- Updated backend docs with runtime e2e Celery test runbook.
+- Re-ran backend validation: `uv run pytest` passed with `26 passed, 2 skipped`.
+- Re-ran frontend validation: `pnpm typecheck`, `pnpm lint`, and `pnpm build` all passed with `/docs` route generated.
+- Added migration `005_exports.sql` for export records and indexes.
+- Added backend export modules/repositories/worker flow for JSON v1 export + signed URL download.
+- Added control-plane export endpoints (`POST/GET list/GET detail/GET download`).
+- Added Graphiti memory adapter implementation and runtime backend selector wiring.
+- Added protocol/payload/quota/metrics/export coverage to backend tests.
+- Re-ran backend validation after implementation: `uv run pytest -q` passed with `33 passed, 2 skipped`.
+- Added web API client methods and server action for export lifecycle (`create`, `list`, `detail`).
+- Updated `/projects` UI token panel to include export cards, status badges, and inline download buttons.
+- Added global `sonner` toaster provider and wired export success/failure notifications.
+- Re-ran frontend validation: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
+- Re-ran backend regression validation: `uv run pytest -q` passed with `33 passed, 2 skipped`.
+- Added maintenance repository + worker tasks for retention and purge flows (`delete old episodes/exports`, `delete object keys`, `scrub project audit logs`, `purge graph database`).
+- Extended runtime queue interface with retention/purge enqueue methods for eager and Celery backends.
+- Added control-plane endpoints `POST /api/control-plane/projects/{project_id}/retention/run` and `POST /api/control-plane/projects/{project_id}/purge` (idempotent).
+- Added backend tests covering new control-plane maintenance endpoints and queue backends.
+- Re-ran backend regression validation: `uv run pytest -q` passed with `35 passed, 2 skipped`.
+- Added object storage abstraction (`local` + `r2`) for raw episodes and wired save/ingest/maintenance flows to use it.
+- Added migration `006_episode_object_storage.sql` to make `episodes.content` nullable for pointer-based external storage.
+- Added queue/runtime/control-plane support for `migrate_inline_to_object` with idempotent submission endpoint.
+- Added backend coverage for migrate endpoint + queue methods + large-save `content_ref` behavior.
+- Re-ran backend regression validation: `uv run pytest -q` passed with `37 passed, 2 skipped`.
+- Re-initialized Next.js MCP docs context and reviewed official docs sections for `updating-data`, `use server`, and `revalidatePath` before extending App Router actions UI.
+- Added web control-plane maintenance client/actions/UI for `retention`, `purge`, and `migrate-inline-to-object`, including purge type-to-confirm and force-migrate advanced toggle.
+- Re-ran frontend validation: `pnpm --filter web build`, `pnpm --filter web typecheck`, and `pnpm --filter web lint` all passed.
+- Re-ran backend regression validation: `uv run pytest -q` passed with `37 passed, 2 skipped`.
+- Normalized root `DATABASE_URL` by URL-encoding special characters in password while preserving the same secret value.
+- Applied Supabase migrations in order via MCP: `001_init`, `002_runtime_indexes`, `003_control_plane_ownership_and_indexes`, `004_webhooks`, `005_exports`, `006_episode_object_storage`.
+- Verified migration records now exist in Supabase migration history and all expected public tables are present.
+- Verified `episodes.content` is now nullable (`is_nullable = YES`) and key indexes exist (`idx_episodes_project_timeline`, `idx_usage_events_project_ts`, `idx_projects_owner_created`, `idx_webhooks_provider_event`, `idx_exports_project_requested`, `idx_exports_project_status`).
+- Updated `.env`, `.env.example`, and `apps/web/.env` to use `:8010` for MCP/control-plane URL variables.
+- Replaced `supabase.auth.getSession()` with `supabase.auth.getUser()` in `/projects` page and Server Actions auth resolver.
+- Verified local runtime routes: `:8010/healthz` returns `200`, `:8010/api/control-plane/projects` returns `401` (expected without headers), and web `/api/health` reports `mcpBaseUrl=http://localhost:8010`.
+- Verified no remaining `getSession()` usage in `apps/web/src`.
+- Re-ran web validation: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
+- Updated local env files (`.env`, `.env.example`, `apps/web/.env`) and web defaults to route MCP/control-plane to `http://localhost:8010`.
+- Started VibeRecall backend on `:8010` and verified `GET /healthz` => `200 OK`; unauthenticated control-plane endpoint now returns `401` (expected) instead of previous `404` on wrong service.
+- Re-ran backend regression validation: `uv run pytest -q` passed with `37 passed, 2 skipped`.
+- Verified Supabase project URL and publishable key exposure via MCP; values align with web auth env target.
+- Re-ran backend regression validation: `uv run pytest -q` passed with `37 passed, 2 skipped`.
+- Re-ran web production validation: `pnpm --filter web build` passed.
+- Identified valid Supabase session pooler endpoint for the current project (`aws-1-ap-southeast-2.pooler.supabase.com:5432`) using live asyncpg connectivity checks.
+- Updated `.env` and `apps/web/.env` `DATABASE_URL` to session pooler DSN while preserving the existing DB password.
+- Restarted web (`pnpm dev:web`) and backend (`uvicorn ... --port 8010`) runtimes with updated env values.
+- Verified runtime health and control-plane response: `GET /api/health` shows `mcpBaseUrl=http://localhost:8010`, `GET /healthz` returns `200`, and authenticated `GET /api/control-plane/projects` returns `200 {"projects":[]}`.
+- Added persistent shell env var in `~/.bashrc`: `VIBERECALL_MCP_TOKEN` for Codex MCP bearer auth.
+- Added Codex global MCP server `viberecall-local` with URL `http://localhost:8010/p/proj_95eef8f11c63438685c97ea79213d198/mcp` and `bearer_token_env_var=VIBERECALL_MCP_TOKEN`.
+- Verified Codex MCP registry via `codex mcp list` and `codex mcp get viberecall-local --json`.
+- Verified MCP handshake and auth with env token (`initialize` + `tools/list`) returned tool catalog successfully.
+- Updated Codex MCP server `viberecall-local` to use `http_headers.Authorization = "Bearer ..."` and removed `bearer_token_env_var` dependency.
+- Added and validated local Neo4j Enterprise container (`viberecall-neo4j-enterprise`, ports `7476/7691`) for VibeRecall per-project DB testing.
+- Fixed Neo4j runtime errors for project DB creation by updating `project_db_name` sanitization and quoting DB identifiers in admin commands.
+- Verified live Neo4j write path: `viberecall_save` succeeded and created data in database `vr-proj-95eef8f11c63438685c97ea79213d198`.
+- Re-ran backend validation after Neo4j naming/admin fixes: `uv run pytest -q` passed with `37 passed, 2 skipped`.
+- Queried Stitch project `11423673338136040083` and resolved hosted URLs for screen `9a7d1305e9cb4733835db82447b8be15`.
+- Downloaded Stitch artifacts with `curl -L --fail --retry 3` into `ops/artifacts/stitch/11423673338136040083/9a7d1305e9cb4733835db82447b8be15/`.
+- Created `manifest.json` documenting project/screen IDs, source URLs, and UTC generation timestamp.
+- Verified artifact integrity: `screen.png` is valid PNG, `screen.html` contains expected VibeRecall title, and file sizes are non-zero.
+- Queried graph memory before homepage refactor and read relevant Next.js 16 docs via next-devtools (`server-and-client-components`, `css`, `fonts`, `layouts-and-pages`) before coding.
+- Implemented landing refactor in `apps/web/src/components/landing/*` and replaced `apps/web/src/app/page.tsx` to render the new composed landing page.
+- Added scoped visual system for landing (`landing-page.module.css`) with glow gradients, section reveals, pulse arrows, and orbit animations.
+- Re-ran web validation after refactor: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
+- Queried graph memory and re-checked Next.js 16 docs (`css`, `server-and-client-components`) before visual panel enhancement work.
+- Replaced static Temporal Edge graph placeholder with a dedicated `KnowledgeGraphPanel` component and integrated it into `landing-sections.tsx`.
+- Added cinematic graph animation system in `landing-page.module.css`: edge flow, node pulse, drift, scan sweep, plus mobile/adaptive and reduced-motion safeguards.
+- Re-ran web validation after graph-panel enhancement: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
+- Implemented `apps/web/src/components/landing/landing-auth-controls.tsx` for Supabase client auth hydration + `onAuthStateChange` sync in the landing header.
+- Updated `apps/web/src/components/landing/landing-header.tsx` to replace static `Get Started` block with auth-aware controls.
+- Re-ran web validation after header auth update: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
+- Queried Stitch screen `4e597237f12047e9ac73cba639969441` metadata and downloaded hosted `screen.png` + `screen.html` via `curl -L` into `ops/artifacts/stitch/11423673338136040083/4e597237f12047e9ac73cba639969441/`.
+- Added backend usage-series query (`generate_series` day buckets) and owner-scoped project overview aggregation query for `/projects` dashboard.
+- Added control-plane endpoints: `GET /api/control-plane/projects/overview` and `GET /api/control-plane/projects/{project_id}/usage/series`.
+- Added backend API tests for new overview and usage-series routes in `apps/mcp-api/tests/test_control_plane_api.py`.
+- Added frontend API client/types for usage series and project overview data.
+- Replaced `/projects` page composition with new dashboard component `apps/web/src/components/projects/projects-dashboard.tsx` and server data wiring in `apps/web/src/app/projects/page.tsx`.
+- Re-ran backend validation: `uv run pytest -q` passed with `39 passed, 2 skipped`.
+- Re-ran web validation: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
+- Refactored web routing to nested workspace routes: `/projects/[projectId]/tokens`, `/usage`, `/billing`, `/api-logs`, with `/projects/[projectId]` redirecting to `/tokens`.
+- Added legacy redirect support from `/projects?project=...` to `/projects/[projectId]/tokens`.
+- Added backend billing and api-logs control-plane endpoints plus repository queries (`get_billing_usage_snapshot`, `list_audit_logs_for_project`).
+- Added backend tests for new billing/api-logs endpoints and pagination validation in `tests/test_control_plane_api.py`.
+- Added frontend API client/types for billing + api logs and new pages for usage/billing/logs in App Router.
+- Re-ran backend validation after route/API changes: `uv run pytest -q` passed with `42 passed, 2 skipped`.
+- Re-ran frontend validation after route/API changes: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
+- Applied Supabase migration `007_audit_logs_pagination_index` via MCP (`apply_migration`) and verified index `idx_audit_logs_project_id_desc` exists on `public.audit_logs(project_id, id desc)`.
+- Re-initialized Next.js MCP docs and re-checked `useSearchParams`, `useRouter`, and `usePathname` before implementing sidebar project-selection sync behavior.
+- Refactored `ProjectsWorkspaceShell` to support both directory/workspace modes and always render sidebar navigation.
+- Added sidebar project selector in `ProjectsWorkspaceNav` with URL query sync on `/projects`, localStorage fallback restore, and tab-preserving project switches on nested workspace routes.
+- Updated `/projects` page and `/projects/[projectId]/layout.tsx` to pass shared shell props (`projects`, `activeProject`, `view`, usage tokens) consistently.
+- Re-ran web validation after sidebar unification: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
+- Adjusted project directory color treatment in `ProjectListPlaceholder` to match dashboard dark glow visual system.
+- Updated shared workspace shell to use dedicated directory topbar (owner pill only) and workspace-only status header.
+- Re-ran web validation after color/header adjustments: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
+- Refactored `token-panel-placeholder.tsx` visual classes to dark palette, including token rows, usage boxes, export entries, maintenance blocks, and toast-result badges.
+- Added dark-styled outline button overrides and purge input overrides in tokens panel to avoid default bright UI primitives.
+- Re-ran web validation after tokens panel recolor: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
+- Built a Pencil draft (`pencil-new.pen`) of `/projects` dashboard structure with dark sidebar, header, projects card, and overview card for fast visual iteration.
+- Vendored Graphiti upstream source into `apps/mcp-api/vendor/graphiti` at tag `v0.28.1` and updated `uv.lock` to editable local source resolution.
+- Added backend dependency guardrail test for Graphiti source policy and ran backend validation with `44 passed, 2 skipped`.
+- Initialized root Git repository on branch `main`, staged project sources, and excluded transient local artifacts from initial commit scope.
+
+## Now
+- MCP backend supports local/real runtime backends with owner-scoped control-plane mutations, usage rollups, and Stripe webhook plan updates.
+- Web control-plane supports project/token lifecycle and usage visibility, plus onboarding docs at `/docs`.
+- MCP backend now includes export pipeline + signed artifact delivery from control-plane endpoints.
+- Runtime now exposes a Graphiti adapter backend option while keeping Neo4j canonical model compatibility for existing tools.
+- Control-plane web now supports full export UX loop from job creation to downloadable artifact.
+- Maintenance lifecycle is now implemented for retention/purge execution in backend control-plane and worker runtime.
+- Raw episode storage + inline migration semantics from spec `05_data_model_temporal.md` are now implemented in backend runtime.
+- Control-plane web maintenance UX is now implemented end-to-end for retention/purge/migrate-inline-to-object actions.
+- Supabase DB runtime schema is now aligned with backend migrations through `006`, and runtime config parsing issue is resolved.
+- Local runtime is now aligned for dual-server development: Graphiti on `:8000`, VibeRecall backend on `:8010`, and web on `:3000`.
+- `/projects` backend path now works end-to-end in local dev with session pooler DB connectivity (no `500` from network-unreachable DB path).
+- Codex CLI can now reuse the project MCP endpoint via named server `viberecall-local` without hardcoding token in Codex config.
+- To inspect VibeRecall MCP data in Neo4j, run backend with `MEMORY_BACKEND=neo4j` against enterprise Neo4j (`bolt://localhost:7691`).
+- Stitch screen export assets for landing UX handoff are ready in `ops/artifacts/stitch/11423673338136040083/9a7d1305e9cb4733835db82447b8be15/`.
+- Web homepage (`/`) now reflects the Stitch "Visual Glow" UI direction with production-grade modular components and responsive behavior.
+- Temporal Edge now delivers denser visual feedback (network links, dynamic nodes, sweep) instead of sparse orbit-only placeholder visuals.
+- Landing top-right actions now differ by auth state at runtime without forcing dynamic server rendering for `/`.
+- `/projects` now visually matches Stitch E2E dashboard direction with sidebar/topbar/chart/integration/table while retaining token/export/maintenance actions end-to-end.
+- `/projects` IA is now split between a directory screen and nested project workspace tabs, matching the selected path-param navigation model.
+- Billing and API Logs tabs are now backed by live control-plane data (no \"Soon\" placeholders).
+- Sidebar remains visible on `/projects` and nested workspace routes with a unified project context selector.
+- A standalone design mock for `/projects` also exists in Pencil (`pencil-new.pen`) for quick UI direction reviews before code tweaks.
+- Graphiti source policy migration to vendored local editable path is fully implemented and validated in backend test suite.
+
+## Next
+- Add deployment workflow details (staging/prod secrets, release gates, backup/restore drills) to match Day 6 launch hardening.
+- Evaluate whether runtime e2e Celery should be conditionally integrated into CI (nightly/manual workflow) without destabilizing default PR checks.
+- Add deployment runbook automation for backup/restore drills (Neo4j dump to object storage, retention policy checks).
+- Consider whether to add maintenance job history/status polling endpoint + UI if operations needs live progress beyond queued job receipts.
+- Keep migration discipline for next schema changes: apply with Supabase MCP migration records and verify tables/indexes immediately after each apply.
+- For other environments still using direct Supabase DB host, switch to session pooler or ensure IPv6 routing to avoid recurrence of `Errno 101`.
+- Rotate `VIBERECALL_MCP_TOKEN` when project token is rotated/revoked; Codex server entry can remain unchanged if endpoint stays the same.
+- Keep default `.env` `MEMORY_BACKEND=local` for stable local/unit-test baseline; switch to `neo4j` only when explicitly validating graph persistence.
+- If needed, parse exported `screen.html` into App Router sections/components for production landing implementation.
+- Replace placeholder external links (`GitHub`, `Contact Sales`, footer legal links) with canonical URLs once legal/repo endpoints are finalized.
+- Consider adding an explicit `Sign out` action to the landing header profile pill if product flow requires direct logout from `/`.
+- Consider adding filter/search controls for API logs tab (`status`, `action`, time range`) if operator workflows require faster triage.
+- Consider adding an off-canvas mobile sidebar for `/projects` since the current sidebar remains `xl`-only.
+
+## Open questions
+- UNCONFIRMED: Should tenant isolation text in the spec be normalized later from `graph_name` to `db_name` everywhere?
+- UNCONFIRMED: Should vector search be enabled by default in the eventual Neo4j implementation, or kept behind a feature flag?

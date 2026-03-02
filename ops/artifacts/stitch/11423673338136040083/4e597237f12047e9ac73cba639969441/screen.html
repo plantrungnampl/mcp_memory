@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>VibeRecall PRO - Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#7a2dbe",
+                        "background-light": "#f7f6f8",
+                        "background-dark": "#19131f",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .subtle-glow { box-shadow: 0 0 15px rgba(122, 45, 190, 0.1); }
+        .glass-panel { background: rgba(25, 19, 31, 0.8); backdrop-filter: blur(12px); }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-display">
+<div class="flex h-screen overflow-hidden">
+<!-- Sidebar -->
+<aside class="w-64 border-r border-slate-200 dark:border-primary/20 flex flex-col glass-panel shrink-0">
+<div class="p-6 flex items-center gap-3 border-b border-slate-200 dark:border-primary/20">
+<div class="size-8 bg-primary rounded flex items-center justify-center shadow-[0_0_15px_rgba(122,45,190,0.4)]">
+<span class="material-symbols-outlined text-white text-xl">memory</span>
+</div>
+<h1 class="text-xl font-bold tracking-tight text-primary">VibeRecall</h1>
+</div>
+<nav class="flex-1 overflow-y-auto p-4 space-y-2">
+<div class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider px-3 mb-2">Main Menu</div>
+<a class="flex items-center gap-3 px-3 py-2 rounded bg-primary/10 text-primary border border-primary/20" href="#">
+<span class="material-symbols-outlined">folder</span>
+<span class="text-sm font-medium">Projects</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-primary/5 transition-colors" href="#">
+<span class="material-symbols-outlined">toll</span>
+<span class="text-sm font-medium">VibeTokens</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-primary/5 transition-colors" href="#">
+<span class="material-symbols-outlined">bar_chart</span>
+<span class="text-sm font-medium">Usage Analytics</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-primary/5 transition-colors" href="#">
+<span class="material-symbols-outlined">credit_card</span>
+<span class="text-sm font-medium">Billing</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-primary/5 transition-colors" href="#">
+<span class="material-symbols-outlined">terminal</span>
+<span class="text-sm font-medium">API Logs</span>
+</a>
+</nav>
+<!-- Current Plan Card -->
+<div class="p-4 border-t border-slate-200 dark:border-primary/20">
+<div class="bg-primary/5 border border-primary/20 rounded-xl p-4">
+<div class="flex items-center justify-between mb-2">
+<span class="text-xs font-bold text-primary">ENTERPRISE PRO</span>
+<span class="text-xs text-slate-400">65%</span>
+</div>
+<div class="h-1.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden mb-2">
+<div class="h-full bg-primary" style="width: 65%"></div>
+</div>
+<p class="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-tighter">650k / 1M VibeTokens</p>
+<button class="w-full mt-3 bg-primary text-white py-1.5 rounded text-xs font-bold hover:bg-primary/90 transition-all">Upgrade Plan</button>
+</div>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="flex-1 flex flex-col overflow-hidden">
+<!-- Header -->
+<header class="h-16 border-b border-slate-200 dark:border-primary/20 flex items-center justify-between px-8 bg-white dark:bg-background-dark/50 shrink-0">
+<div class="flex items-center gap-4 flex-1 max-w-xl">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xl">search</span>
+<input class="w-full bg-slate-100 dark:bg-slate-800/50 border-none rounded-lg pl-10 pr-4 py-2 text-sm focus:ring-1 focus:ring-primary" placeholder="Search projects, tokens, or logs..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<button class="relative text-slate-500 dark:text-slate-400 hover:text-primary transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-0 right-0 size-2 bg-red-500 rounded-full border-2 border-white dark:border-background-dark"></span>
+</button>
+<button class="text-slate-500 dark:text-slate-400 hover:text-primary transition-colors">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="flex items-center gap-3 pl-6 border-l border-slate-200 dark:border-primary/20">
+<div class="text-right">
+<p class="text-sm font-bold">alex_dev</p>
+<p class="text-[10px] text-slate-500 uppercase tracking-widest font-semibold">Admin</p>
+</div>
+<div class="size-10 rounded-full bg-primary/20 border border-primary/40 overflow-hidden">
+<img alt="User Profile" class="w-full h-full object-cover" data-alt="Avatar of alex_dev profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBizXuOzc4EcEqIUdnm7T7a2H97uDkzvcSkTn57cj2YeIutZ0z_eoKhL8GvhqQyF342mZW4DXtqVA7PerlktUuyMNzjO83nHAGD96gn7PmC1xgpvZ06EZIW1JJ9maDqLw2JLHezEi6UZFYedw4EGsKPMFVArdPg4iXeicyRMTx7gdP-6wlljQvG9rytsNG7flnbpL0bnwDXMsPiWXpFCk_4pp8iRhyqVLEn41Twz4RD8DsQB-weF3DYKowhfMrEeReYuzIG_5LReDZ6"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Dashboard Content -->
+<div class="flex-1 overflow-y-auto p-8 space-y-8">
+<!-- Welcome Section -->
+<div class="flex justify-between items-end">
+<div>
+<h2 class="text-3xl font-black tracking-tight mb-1">Project Dashboard</h2>
+<p class="text-slate-500 dark:text-slate-400">Monitoring 12 active neural instances across 4 clusters.</p>
+</div>
+<button class="bg-primary px-4 py-2 rounded text-white text-sm font-bold flex items-center gap-2 hover:shadow-[0_0_20px_rgba(122,45,190,0.3)] transition-all">
+<span class="material-symbols-outlined text-sm">add</span>
+                        New Project
+                    </button>
+</div>
+<!-- Main Grid -->
+<div class="grid grid-cols-12 gap-6">
+<!-- Token Consumption Chart (Left) -->
+<div class="col-span-12 lg:col-span-8 border border-slate-200 dark:border-primary/20 rounded-xl bg-white dark:bg-background-dark/30 p-6 subtle-glow">
+<div class="flex items-center justify-between mb-8">
+<div>
+<h3 class="font-bold text-lg">VibeTokens Consumption</h3>
+<p class="text-xs text-slate-500">Daily usage volume - last 30 days</p>
+</div>
+<div class="flex gap-2">
+<span class="px-2 py-1 rounded text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">30D</span>
+<span class="px-2 py-1 rounded text-[10px] font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">90D</span>
+</div>
+</div>
+<div class="h-48 flex items-end justify-between gap-1">
+<!-- Mock Bar Chart -->
+<div class="w-full bg-primary/20 rounded-t-sm h-[30%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[45%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[20%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[60%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[35%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[80%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[50%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[40%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[90%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[75%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[65%]"></div>
+<div class="w-full bg-primary rounded-t-sm h-[95%] shadow-[0_-5px_15px_rgba(122,45,190,0.3)]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[30%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[45%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[20%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[60%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[35%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[80%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[50%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[40%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[90%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[75%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[65%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[30%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[45%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[20%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[60%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[35%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[80%]"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[50%]"></div>
+</div>
+<div class="mt-4 flex justify-between text-[10px] text-slate-500 font-medium uppercase tracking-widest">
+<span>April 01</span>
+<span>April 15</span>
+<span>Today</span>
+</div>
+</div>
+<!-- Quick Integration (Right) -->
+<div class="col-span-12 lg:col-span-4 border border-slate-200 dark:border-primary/20 rounded-xl bg-white dark:bg-background-dark/30 p-6 subtle-glow flex flex-col">
+<h3 class="font-bold text-lg mb-4">Quick Integration</h3>
+<div class="space-y-5 flex-1">
+<div>
+<label class="text-[10px] font-bold text-slate-500 uppercase block mb-1.5">MCP Endpoint URL</label>
+<div class="flex gap-2">
+<input class="flex-1 bg-slate-100 dark:bg-slate-800 border-none rounded p-2 text-xs font-mono text-primary" readonly="" type="text" value="https://mcp.viberecall.ai/p/proj_123/mcp"/>
+<button class="bg-slate-200 dark:bg-slate-800 p-2 rounded hover:bg-primary/20 transition-colors">
+<span class="material-symbols-outlined text-sm">content_copy</span>
+</button>
+</div>
+</div>
+<div>
+<label class="text-[10px] font-bold text-slate-500 uppercase block mb-1.5">Secret API Token</label>
+<div class="relative">
+<input class="w-full bg-slate-100 dark:bg-slate-800 border-none rounded p-2 text-xs font-mono" readonly="" type="password" value="sk-vibe-7a2dbe4f992381002"/>
+<div class="absolute inset-y-0 right-0 flex items-center pr-2 gap-1">
+<button class="p-1 hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm">visibility</span>
+</button>
+<button class="p-1 hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm">refresh</span>
+</button>
+</div>
+</div>
+<p class="text-[10px] text-slate-500 mt-2 italic">Last rotated 4 days ago.</p>
+</div>
+<div class="pt-4 mt-auto">
+<button class="w-full border border-primary/30 text-primary py-2 rounded text-sm font-bold hover:bg-primary/5 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">description</span>
+                                    View Documentation
+                                </button>
+</div>
+</div>
+</div>
+<!-- Project Management Table -->
+<div class="col-span-12 border border-slate-200 dark:border-primary/20 rounded-xl bg-white dark:bg-background-dark/30 overflow-hidden subtle-glow">
+<div class="px-6 py-4 border-b border-slate-200 dark:border-primary/20 flex justify-between items-center">
+<h3 class="font-bold text-lg">Active Projects</h3>
+<button class="text-xs font-bold text-primary flex items-center gap-1">
+                                View All Projects <span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</div>
+<table class="w-full text-left">
+<thead class="bg-slate-50 dark:bg-slate-800/50 text-[10px] font-bold text-slate-500 uppercase">
+<tr>
+<th class="px-6 py-4">Project Name</th>
+<th class="px-6 py-4">Status</th>
+<th class="px-6 py-4">Last Activity</th>
+<th class="px-6 py-4">Tokens Used</th>
+<th class="px-6 py-4 text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-primary/10">
+<tr class="hover:bg-primary/5 transition-colors">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="size-8 rounded bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">hub</span>
+</div>
+<span class="font-bold text-sm">Neural Nexus</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="flex items-center gap-1.5 text-xs font-semibold text-emerald-500">
+<span class="size-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                            Active
+                                        </span>
+</td>
+<td class="px-6 py-4 text-xs text-slate-500">2 mins ago</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<span class="text-sm font-mono">142,831</span>
+<span class="text-[10px] text-slate-400">/ 500k</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="p-2 text-slate-400 hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm">more_vert</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-primary/5 transition-colors">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="size-8 rounded bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">auto_fix</span>
+</div>
+<span class="font-bold text-sm">Shadow Realm</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="flex items-center gap-1.5 text-xs font-semibold text-amber-500">
+<span class="size-1.5 rounded-full bg-amber-500"></span>
+                                            Idle
+                                        </span>
+</td>
+<td class="px-6 py-4 text-xs text-slate-500">4 hours ago</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<span class="text-sm font-mono">12,042</span>
+<span class="text-[10px] text-slate-400">/ 500k</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="p-2 text-slate-400 hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm">more_vert</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-primary/5 transition-colors">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="size-8 rounded bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">data_object</span>
+</div>
+<span class="font-bold text-sm">Quantum Core</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="flex items-center gap-1.5 text-xs font-semibold text-rose-500">
+<span class="size-1.5 rounded-full bg-rose-500"></span>
+                                            Error (401)
+                                        </span>
+</td>
+<td class="px-6 py-4 text-xs text-slate-500">12 mins ago</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<span class="text-sm font-mono">2,110</span>
+<span class="text-[10px] text-slate-400">/ 500k</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="p-2 text-slate-400 hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

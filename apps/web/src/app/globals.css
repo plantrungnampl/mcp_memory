@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f5efe5;
+  --foreground: #221b14;
+  --panel: rgba(255, 250, 244, 0.85);
+  --muted: #6f6358;
+  --line: rgba(34, 27, 20, 0.1);
+  --accent: #b67832;
+  --accent-ink: #fff7ef;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-mono);
+}
+
+* {
+  border-color: var(--line);
+}
+
+html {
+  background:
+    radial-gradient(circle at top left, rgba(182, 120, 50, 0.18), transparent 24%),
+    radial-gradient(circle at 85% 10%, rgba(95, 112, 117, 0.13), transparent 24%),
+    linear-gradient(180deg, #f7f0e7 0%, #f1e8dc 100%);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body), sans-serif;
+  min-height: 100vh;
+}
+
+a {
+  text-decoration: none;
+}
+
+::selection {
+  background: rgba(182, 120, 50, 0.18);
+}
+
+.mesh-orb {
+  pointer-events: none;
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(50px);
+  opacity: 0.7;
+}
+
+.mesh-orb-left {
+  left: -6rem;
+  top: 8rem;
+  height: 16rem;
+  width: 16rem;
+  background: rgba(182, 120, 50, 0.2);
+}
+
+.mesh-orb-right {
+  right: 0;
+  top: 3rem;
+  height: 18rem;
+  width: 18rem;
+  background: rgba(84, 97, 109, 0.12);
+}

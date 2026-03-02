@@ -1,0 +1,21 @@
+{
+  "project": {
+    "title": "VibeRecall Landing Page",
+    "id": "11423673338136040083"
+  },
+  "screen": {
+    "title": "VibeRecall Pro - E2E Dashboard",
+    "id": "4e597237f12047e9ac73cba639969441"
+  },
+  "assets": {
+    "screenshot": {
+      "file": "screen.png",
+      "url": "https://lh3.googleusercontent.com/aida/AOfcidXv6viOdM38Tk50CucihB8WEIsoPV43PaIP7ecucOQFZydMkfkxDZ0oo1jC1BdDFOUxN2v8zLIQwsaMp2h8vIdHjrg6oow7wprV7im7u7EwuPRiMRf53FCPDG9-LRrXwbRCrVdzsTi61hiZqSNLULw4bADr-GE4v5Ii5cT1PiLC5IvP_ZGOS5LUNXPaKGTBkAMZ9Iuid9bjZ_65uRvlQG1Z16axMz2Au7dvhei4kZo6JsQcb9dwjgiPT8I8"
+    },
+    "html": {
+      "file": "screen.html",
+      "url": "https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ8Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpbCiVodG1sXzYyYmRjNWVlNjVmMDQ3MzE5YjNhNzdjYjRiYmUyMzAxEgsSBxCHqu6wgQEYAZIBJAoKcHJvamVjdF9pZBIWQhQxMTQyMzY3MzMzODEzNjA0MDA4Mw&filename=&opi=89354086"
+    }
+  },
+  "downloaded_at_utc": "2026-03-01T05:22:12.512538+00:00"
+}

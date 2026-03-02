@@ -1,0 +1,338 @@
+.landingRoot {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(122, 45, 190, 0.28), transparent 34%),
+    radial-gradient(circle at 86% 12%, rgba(0, 245, 255, 0.14), transparent 30%),
+    radial-gradient(circle at 45% 88%, rgba(122, 45, 190, 0.14), transparent 36%),
+    linear-gradient(180deg, #0a080c 0%, #0e0b14 48%, #09070d 100%);
+}
+
+.glassHeader {
+  background: rgba(10, 8, 12, 0.74);
+  backdrop-filter: blur(16px);
+}
+
+.purpleGradientText {
+  background-image: linear-gradient(135deg, #7a2dbe 0%, #00f5ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.cyanGlow {
+  text-shadow: 0 0 16px rgba(0, 245, 255, 0.32);
+}
+
+.heroBlobLeft {
+  position: absolute;
+  left: -8rem;
+  top: -7rem;
+  width: 31rem;
+  height: 31rem;
+  border-radius: 9999px;
+  background: rgba(122, 45, 190, 0.18);
+  filter: blur(130px);
+  pointer-events: none;
+}
+
+.heroBlobRight {
+  position: absolute;
+  right: -8rem;
+  top: 35%;
+  width: 25rem;
+  height: 25rem;
+  border-radius: 9999px;
+  background: rgba(0, 245, 255, 0.12);
+  filter: blur(120px);
+  pointer-events: none;
+}
+
+.terminalGlow {
+  box-shadow:
+    0 0 48px -14px rgba(122, 45, 190, 0.62),
+    0 14px 48px rgba(0, 0, 0, 0.45);
+}
+
+.sectionReveal {
+  opacity: 0;
+  transform: translateY(18px);
+  animation: reveal-up 900ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+.revealDelay1 {
+  animation-delay: 80ms;
+}
+
+.revealDelay2 {
+  animation-delay: 160ms;
+}
+
+.revealDelay3 {
+  animation-delay: 240ms;
+}
+
+.revealDelay4 {
+  animation-delay: 320ms;
+}
+
+.priceHighlight {
+  box-shadow:
+    0 0 40px -10px rgba(122, 45, 190, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.orbitSlow {
+  animation: orbit-spin 20s linear infinite;
+}
+
+.orbitMedium {
+  animation: orbit-spin-reverse 15s linear infinite;
+}
+
+.orbitFast {
+  animation: orbit-spin 10s linear infinite;
+}
+
+.pulseArrow {
+  animation: pulse-arrow 1.8s ease-in-out infinite;
+}
+
+.graphPanel {
+  min-height: 26rem;
+  isolation: isolate;
+}
+
+.graphNoise {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    radial-gradient(circle at 12% 14%, rgba(122, 45, 190, 0.22), transparent 32%),
+    radial-gradient(circle at 84% 18%, rgba(0, 245, 255, 0.14), transparent 28%),
+    radial-gradient(circle at 42% 76%, rgba(122, 45, 190, 0.12), transparent 34%),
+    linear-gradient(145deg, rgba(9, 7, 14, 0.96), rgba(13, 9, 18, 0.88));
+}
+
+.graphScanSweep {
+  position: absolute;
+  inset: -24% -40%;
+  z-index: 18;
+  background: linear-gradient(
+    114deg,
+    transparent 34%,
+    rgba(0, 245, 255, 0.04) 43%,
+    rgba(0, 245, 255, 0.2) 47%,
+    rgba(122, 45, 190, 0.18) 51%,
+    rgba(122, 45, 190, 0.05) 56%,
+    transparent 64%
+  );
+  transform: translateX(-62%) rotate(2deg);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: scan-sweep 7.4s cubic-bezier(0.17, 0.67, 0.42, 1) infinite;
+}
+
+.graphNodeAnchor {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  animation: float-drift 8s ease-in-out infinite;
+}
+
+.graphNode {
+  display: block;
+  border-radius: 9999px;
+  animation: node-pulse 2.8s ease-in-out infinite;
+}
+
+.graphNodePrimary {
+  background: #7a2dbe;
+  box-shadow:
+    0 0 0 2px rgba(122, 45, 190, 0.28),
+    0 0 12px rgba(122, 45, 190, 0.85);
+}
+
+.graphNodeAccent {
+  background: #00f5ff;
+  box-shadow:
+    0 0 0 2px rgba(0, 245, 255, 0.24),
+    0 0 14px rgba(0, 245, 255, 0.9);
+}
+
+.graphNodeNeutral {
+  background: #ffffff;
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.2),
+    0 0 13px rgba(255, 255, 255, 0.82);
+}
+
+.graphEdgeBase {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.28;
+}
+
+.graphEdgePrimary {
+  stroke: rgba(122, 45, 190, 0.7);
+}
+
+.graphEdgeAccent {
+  stroke: rgba(0, 245, 255, 0.62);
+}
+
+.graphEdgeNeutral {
+  stroke: rgba(226, 232, 240, 0.52);
+}
+
+.graphEdgeFlow {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 2.4 5.6;
+  stroke-dashoffset: 28;
+  opacity: 0.82;
+  animation: edge-flow 3.8s linear infinite;
+}
+
+.graphEdgeFlowPrimary {
+  stroke: rgba(168, 103, 224, 0.95);
+}
+
+.graphEdgeFlowAccent {
+  stroke: rgba(0, 245, 255, 0.98);
+}
+
+.graphEdgeFlowNeutral {
+  stroke: rgba(255, 255, 255, 0.88);
+}
+
+.mobileHidden {
+  display: initial;
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes orbit-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes orbit-spin-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes pulse-arrow {
+  0%,
+  100% {
+    opacity: 0.18;
+    transform: translateX(0);
+  }
+  50% {
+    opacity: 0.65;
+    transform: translateX(6px);
+  }
+}
+
+@keyframes node-pulse {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.78;
+  }
+  50% {
+    transform: scale(1.16);
+    opacity: 1;
+  }
+}
+
+@keyframes edge-flow {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes float-drift {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) translateY(0);
+  }
+  50% {
+    transform: translate(-50%, -50%) translateY(-5px);
+  }
+}
+
+@keyframes scan-sweep {
+  0% {
+    transform: translateX(-62%) rotate(2deg);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.9;
+  }
+  62% {
+    opacity: 0.95;
+  }
+  100% {
+    transform: translateX(62%) rotate(2deg);
+    opacity: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .graphPanel {
+    min-height: 20rem;
+  }
+
+  .mobileHidden {
+    display: none;
+  }
+
+  .graphNode {
+    filter: saturate(0.88);
+  }
+
+  .graphEdgeFlow {
+    opacity: 0.5;
+    animation-duration: 5.4s;
+  }
+
+  .graphScanSweep {
+    opacity: 0.35;
+    animation-duration: 10s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sectionReveal,
+  .orbitSlow,
+  .orbitMedium,
+  .orbitFast,
+  .pulseArrow,
+  .graphNodeAnchor,
+  .graphNode,
+  .graphEdgeFlow,
+  .graphScanSweep {
+    animation: none !important;
+  }
+
+  .graphScanSweep {
+    display: none;
+  }
+}
