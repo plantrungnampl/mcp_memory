@@ -1,6 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
+
+
+@dataclass(slots=True)
+class DeleteEpisodeResult:
+    found: bool
+    deleted_episode_node: bool
+    deleted_fact_count: int
+    updated_fact_count: int
+    remaining_fact_count: int
 
 
 class MemoryCore(Protocol):
@@ -36,6 +46,8 @@ class MemoryCore(Protocol):
         effective_time: str,
         reason: str | None,
     ) -> dict: ...
+
+    async def delete_episode(self, project_id: str, *, episode_id: str) -> DeleteEpisodeResult: ...
 
     async def purge_project(self, project_id: str) -> None: ...
 

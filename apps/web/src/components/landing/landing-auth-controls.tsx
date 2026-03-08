@@ -72,38 +72,37 @@ export function LandingAuthControls() {
 
   if (isSignedIn) {
     return (
-      <div className="flex items-center gap-3">
+      <div className="hidden items-center gap-3 md:flex">
         <Link
           href="/projects"
-          className="hidden rounded-lg bg-[#7a2dbe] px-5 py-2 text-sm font-bold text-white shadow-[0_0_20px_-5px_rgba(122,45,190,0.5)] transition-all hover:bg-[#6a24a8] sm:inline-flex"
+          className="rounded-lg bg-gradient-to-b from-[#7a2dbe] to-[#9333ea] px-6 py-2.5 text-sm font-semibold text-white shadow-[0_8px_22px_-12px_rgba(122,45,190,0.85)] transition-opacity hover:opacity-95"
         >
           Projects
         </Link>
-        <div className="flex items-center gap-2 rounded-full border border-white/12 bg-slate-900/80 px-2 py-1.5">
-          <div className="flex size-6 items-center justify-center rounded-full border border-white/15 bg-[#182739] text-xs font-semibold text-[#00f5ff]">
+        <div className="flex items-center gap-2 rounded-full border border-white/12 bg-[#191925] px-2.5 py-1.5">
+          <div className="flex size-6 items-center justify-center rounded-full border border-white/20 bg-[#7a2dbe]/35 text-xs font-semibold text-white">
             {getAvatarInitial(authState.email)}
           </div>
-          <span className="hidden max-w-[12rem] truncate text-xs text-slate-300 md:inline">
-            {authState.email}
-          </span>
+          <span className="max-w-[13rem] truncate text-xs text-[#c7c7d1]">{authState.email}</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-4">
+    <div className="hidden items-center gap-3 md:flex">
       <Link
         href="/login"
-        className="hidden rounded-lg bg-[#7a2dbe] px-5 py-2 text-sm font-bold text-white shadow-[0_0_20px_-5px_rgba(122,45,190,0.5)] transition-all hover:bg-[#6a24a8] sm:inline-flex"
+        className="rounded-lg px-5 py-2.5 text-sm font-medium text-[#adadb0] transition-colors hover:text-white"
       >
         Sign In
       </Link>
-      <div className="flex size-8 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-800">
-        <span
-          className={`size-2.5 rounded-full ${authState.isLoading ? "bg-slate-500" : "bg-[#00f5ff]"}`}
-        />
-      </div>
+      <Link
+        href="/projects"
+        className="rounded-lg bg-gradient-to-b from-[#7a2dbe] to-[#9333ea] px-6 py-2.5 text-sm font-semibold text-white shadow-[0_8px_22px_-12px_rgba(122,45,190,0.85)] transition-opacity hover:opacity-95"
+      >
+        {authState.isLoading ? "Loading..." : "Get Started"}
+      </Link>
     </div>
   );
 }

@@ -21,19 +21,10 @@ import {
   rotateToken,
   type ControlPlaneUser,
 } from "@/lib/api/control-plane";
-import { getServerSupabaseClient } from "@/lib/supabase/server";
+import { requireAuthenticatedControlPlaneUser } from "@/lib/auth/authenticated-user";
 
 async function resolveUser(): Promise<ControlPlaneUser> {
-  const supabase = await getServerSupabaseClient();
-  const auth = supabase ? await supabase.auth.getUser() : { data: { user: null } };
-  const authUser = auth.data.user;
-  if (!authUser) {
-    throw new Error("Authentication required.");
-  }
-  return {
-    id: authUser.id,
-    email: authUser.email,
-  };
+  return requireAuthenticatedControlPlaneUser();
 }
 
 function actionNonce(): string {
@@ -51,6 +42,7 @@ export async function createProjectAction(
       message: "Project name is required.",
       nonce: actionNonce(),
       projectId: null,
+      connectionEndpoint: null,
       tokenPlaintext: null,
       tokenPrefix: null,
     };
@@ -69,6 +61,7 @@ export async function createProjectAction(
       message: "Project created.",
       nonce: actionNonce(),
       projectId: result.project.id,
+      connectionEndpoint: result.connection.endpoint,
       tokenPlaintext: result.token.plaintext,
       tokenPrefix: result.token.prefix,
     };
@@ -78,6 +71,7 @@ export async function createProjectAction(
       message: error instanceof Error ? error.message : "Failed to create project.",
       nonce: actionNonce(),
       projectId: null,
+      connectionEndpoint: null,
       tokenPlaintext: null,
       tokenPrefix: null,
     };

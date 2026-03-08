@@ -32,6 +32,7 @@ export default function DocsPage() {
             <p>3. Use endpoint format: <code className="font-mono">https://mcp.viberecall.ai/p/&lt;project_id&gt;/mcp</code>.</p>
             <p>4. Configure MCP client with bearer token: <code className="font-mono">vr_mcp_sk_...</code>.</p>
             <p>5. Run `viberecall_save` then `viberecall_search` to verify memory roundtrip.</p>
+            <p>6. If your IDE starts returning <code className="font-mono">404 Session not found</code> after a backend reload or reconnect, restart the MCP client so it can initialize a fresh session.</p>
           </CardContent>
         </Card>
 
@@ -44,6 +45,7 @@ export default function DocsPage() {
             <p>Keep tokens in secure secrets storage, never commit into source control.</p>
             <p>Use rotate when onboarding new device; old token remains in grace window briefly.</p>
             <p>Use revoke for immediate cut-off when a token is leaked.</p>
+            <p>Do not open the MCP endpoint in a normal browser tab to test it. MCP clients must negotiate the transport correctly and advertise the required Accept headers.</p>
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 font-mono text-xs">
               <TerminalSquare className="mb-2 size-4" />
               Authorization: Bearer vr_mcp_sk_...

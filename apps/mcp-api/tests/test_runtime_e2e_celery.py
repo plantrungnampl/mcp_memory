@@ -20,7 +20,7 @@ from viberecall_mcp.app import create_app
 from viberecall_mcp.auth import hash_token
 from viberecall_mcp.db import SessionLocal
 from viberecall_mcp.ids import new_id
-from viberecall_mcp.memory_core.neo4j_admin import Neo4jDatabaseManager
+from viberecall_mcp.memory_core.falkordb_admin import FalkorDBGraphManager
 from viberecall_mcp import runtime
 from viberecall_mcp.workers.celery_app import celery_app
 
@@ -161,7 +161,7 @@ async def _create_project_token(project_id: str, token_id: str, plaintext_token:
                 "owner_id": "runtime-e2e",
                 "plan": "pro",
                 "retention_days": 30,
-                "isolation_mode": "neo4j_database",
+                "isolation_mode": "falkordb_graph",
             },
         )
         await session.execute(
@@ -258,7 +258,7 @@ def test_runtime_e2e_celery_worker_flow(monkeypatch) -> None:
     project_id = new_id("proj")
     token_id = new_id("tok")
     token_plaintext = f"vr_mcp_sk_{secrets.token_urlsafe(24)}"
-    admin = Neo4jDatabaseManager()
+    admin = FalkorDBGraphManager()
 
     try:
         # Connectivity pre-checks for optional e2e mode.
@@ -269,15 +269,15 @@ def test_runtime_e2e_celery_worker_flow(monkeypatch) -> None:
         try:
             asyncio.run(redis.ping())
             probe_project = f"{project_id}_probe"
-            asyncio.run(admin.ensure_project_database(probe_project))
-            asyncio.run(admin.reset_database(probe_project))
+            asyncio.run(admin.ensure_project_graph(probe_project))
+            asyncio.run(admin.reset_graph(probe_project))
         except Exception as exc:  # noqa: BLE001
             pytest.skip(f"Runtime e2e dependencies are unavailable: {exc}")
         finally:
             asyncio.run(redis.close())
 
         # Force runtime selectors to real-service path for this test process.
-        monkeypatch.setattr(runtime.settings, "memory_backend", "neo4j")
+        monkeypatch.setattr(runtime.settings, "memory_backend", "falkordb")
         monkeypatch.setattr(runtime.settings, "kv_backend", "redis")
         monkeypatch.setattr(runtime.settings, "queue_backend", "celery")
         celery_app.conf.task_always_eager = False
@@ -286,7 +286,7 @@ def test_runtime_e2e_celery_worker_flow(monkeypatch) -> None:
 
         worker_env = {
             **os.environ,
-            "MEMORY_BACKEND": "neo4j",
+            "MEMORY_BACKEND": "falkordb",
             "KV_BACKEND": "redis",
             "QUEUE_BACKEND": "celery",
         }
@@ -401,5 +401,5 @@ def test_runtime_e2e_celery_worker_flow(monkeypatch) -> None:
         assert audit_update >= 1
     finally:
         asyncio.run(_cleanup_project_data(project_id))
-        asyncio.run(admin.reset_database(project_id))
+        asyncio.run(admin.reset_graph(project_id))
         asyncio.run(admin.close())

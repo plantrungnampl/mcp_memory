@@ -7,21 +7,21 @@ import pytest
 from redis import asyncio as redis_async
 
 from viberecall_mcp.idempotency_redis import RedisIdempotencyStore
-from viberecall_mcp.memory_core.neo4j_adapter import Neo4jMemoryCore
-from viberecall_mcp.memory_core.neo4j_admin import Neo4jDatabaseManager
+from viberecall_mcp.memory_core.falkordb_adapter import FalkorDBMemoryCore
+from viberecall_mcp.memory_core.falkordb_admin import FalkorDBGraphManager
 from viberecall_mcp.rate_limit_redis import RedisRateLimiter
 
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_RUNTIME_INTEGRATION") != "1",
-    reason="Set RUN_RUNTIME_INTEGRATION=1 with Neo4j and Redis running to enable runtime integration tests.",
+    reason="Set RUN_RUNTIME_INTEGRATION=1 with FalkorDB and Redis running to enable runtime integration tests.",
 )
 
 
 @pytest.mark.asyncio
-async def test_runtime_integration_neo4j_and_redis_roundtrip() -> None:
-    admin = Neo4jDatabaseManager()
-    memory = Neo4jMemoryCore(admin)
+async def test_runtime_integration_falkordb_and_redis_roundtrip() -> None:
+    admin = FalkorDBGraphManager()
+    memory = FalkorDBMemoryCore(admin)
     redis = redis_async.from_url(
         os.getenv("REDIS_URL", "redis://localhost:6379/0"),
         decode_responses=True,
@@ -35,7 +35,7 @@ async def test_runtime_integration_neo4j_and_redis_roundtrip() -> None:
     rl_key = f"token:{project_id}:tok_1"
 
     try:
-        await admin.reset_database(project_id)
+        await admin.reset_graph(project_id)
 
         episode = {
             "episode_id": episode_id,
@@ -97,6 +97,28 @@ async def test_runtime_integration_neo4j_and_redis_roundtrip() -> None:
         assert fact_id in fact_ids
         assert f"{fact_id}_v2" in fact_ids
 
+        delete_result = await memory.delete_episode(project_id, episode_id=episode_id)
+        assert delete_result.found is True
+        assert delete_result.remaining_fact_count == 0
+
+        search_after_delete = await memory.search(
+            project_id,
+            query="auth middleware",
+            filters={},
+            sort="RELEVANCE",
+            limit=10,
+            offset=0,
+        )
+        assert search_after_delete == []
+
+        facts_after_delete = await memory.get_facts(
+            project_id,
+            filters={},
+            limit=20,
+            offset=0,
+        )
+        assert facts_after_delete == []
+
         claimed = await idem.claim(idem_key, ttl_seconds=30)
         assert claimed is True
         claimed_again = await idem.claim(idem_key, ttl_seconds=30)
@@ -113,7 +135,7 @@ async def test_runtime_integration_neo4j_and_redis_roundtrip() -> None:
         assert check_1.allowed is True
         assert check_2.allowed is False
     finally:
-        await admin.reset_database(project_id)
+        await admin.reset_graph(project_id)
         await redis.delete(f"idem:result:{idem_key}")
         await redis.delete(f"idem:lock:{idem_key}")
         await redis.delete(f"rl:{rl_key}")

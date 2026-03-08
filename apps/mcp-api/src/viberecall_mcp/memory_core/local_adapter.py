@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from viberecall_mcp.ids import new_id
-from viberecall_mcp.memory_core.interface import entity_identity
+from viberecall_mcp.memory_core.interface import DeleteEpisodeResult, entity_identity
 
 
 def _iso(value) -> str | None:
@@ -196,6 +196,31 @@ class LocalMemoryCore:
             "old_fact": {"id": fact_id, "invalid_at": effective_time},
             "new_fact": {"id": new_fact_id, "valid_at": effective_time},
         }
+
+    async def delete_episode(self, project_id: str, *, episode_id: str) -> DeleteEpisodeResult:
+        bucket = self._facts[project_id]
+        to_delete = [
+            fact_id
+            for fact_id, fact in bucket.items()
+            if episode_id in (fact.get("provenance", {}).get("episode_ids") or [])
+        ]
+        if not to_delete:
+            return DeleteEpisodeResult(
+                found=False,
+                deleted_episode_node=False,
+                deleted_fact_count=0,
+                updated_fact_count=0,
+                remaining_fact_count=0,
+            )
+        for fact_id in to_delete:
+            bucket.pop(fact_id, None)
+        return DeleteEpisodeResult(
+            found=True,
+            deleted_episode_node=True,
+            deleted_fact_count=len(to_delete),
+            updated_fact_count=0,
+            remaining_fact_count=0,
+        )
 
     async def purge_project(self, project_id: str) -> None:
         self._facts.pop(project_id, None)

@@ -527,6 +527,19 @@ wheels = [
 ]
 
 [[package]]
+name = "falkordb"
+version = "1.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+    { name = "redis" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c6/9f/d02f8282490b525ff6a05024ce23e2f519d3fc3dbd6cb2f004ab1bae4920/falkordb-1.2.2.tar.gz", hash = "sha256:3fc150d3262b971916a0f2c15f419f7fe521a94fe3a672b6f174288d885fd239", size = 30179, upload-time = "2025-12-07T13:29:53.746Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d7/56/5e79a1a3ed0afa4c8e32a99edb862f1d2ab66b7dc65a35fd638ea157f33d/falkordb-1.2.2-py3-none-any.whl", hash = "sha256:cc1fcccaa1148be9e3d22d85af03d027f19b398e0f38d04424f3757a02744976", size = 36046, upload-time = "2025-12-07T13:29:52.686Z" },
+]
+
+[[package]]
 name = "fastapi"
 version = "0.134.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1858,12 +1871,12 @@ dependencies = [
     { name = "asyncpg" },
     { name = "boto3" },
     { name = "celery" },
+    { name = "falkordb" },
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "graphiti-core" },
     { name = "httpx" },
     { name = "jsonschema" },
-    { name = "neo4j" },
     { name = "prometheus-client" },
     { name = "pydantic-settings" },
     { name = "redis" },
@@ -1883,12 +1896,12 @@ requires-dist = [
     { name = "asyncpg", specifier = "==0.31.0" },
     { name = "boto3", specifier = "==1.42.58" },
     { name = "celery", specifier = "==5.5.3" },
+    { name = "falkordb", specifier = ">=1.1.2,<2.0.0" },
     { name = "fastapi", specifier = "==0.134.0" },
     { name = "fastmcp", specifier = "==3.0.2" },
     { name = "graphiti-core", editable = "vendor/graphiti" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "jsonschema", specifier = "==4.26.0" },
-    { name = "neo4j", specifier = "==5.28.2" },
     { name = "prometheus-client", specifier = ">=0.24.1" },
     { name = "pydantic-settings", specifier = "==2.13.1" },
     { name = "redis", specifier = "==6.4.0" },

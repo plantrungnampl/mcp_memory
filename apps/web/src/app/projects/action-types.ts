@@ -3,6 +3,7 @@ export type ProjectActionState = {
   message: string | null;
   nonce: string | null;
   projectId: string | null;
+  connectionEndpoint: string | null;
   tokenPlaintext: string | null;
   tokenPrefix: string | null;
 };
@@ -12,6 +13,7 @@ export const INITIAL_PROJECT_ACTION_STATE: ProjectActionState = {
   message: null,
   nonce: null,
   projectId: null,
+  connectionEndpoint: null,
   tokenPlaintext: null,
   tokenPrefix: null,
 };

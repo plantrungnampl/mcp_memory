@@ -1,0 +1,75 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_MCP_BASE_URL: ${NEXT_PUBLIC_MCP_BASE_URL}
+        CONTROL_PLANE_API_BASE_URL: ${CONTROL_PLANE_API_BASE_URL}
+        CONTROL_PLANE_INTERNAL_SECRET: ${CONTROL_PLANE_INTERNAL_SECRET}
+        PUBLIC_MCP_BASE_URL: ${PUBLIC_MCP_BASE_URL}
+        DEPLOYMENT_VERSION: ${DEPLOYMENT_VERSION}
+        NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
+    env_file:
+      - ../.env.production
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_started
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/mcp-api/Dockerfile
+    env_file:
+      - ../.env.production
+    ports:
+      - "8010:8010"
+    depends_on:
+      redis:
+        condition: service_started
+      falkordb:
+        condition: service_started
+
+  worker:
+    build:
+      context: ..
+      dockerfile: apps/mcp-api/Dockerfile
+    command:
+      - celery
+      - -A
+      - viberecall_mcp.workers.celery_app
+      - worker
+      - -l
+      - info
+      - -Q
+      - memory
+      - --pool=solo
+      - --concurrency=1
+    env_file:
+      - ../.env.production
+    depends_on:
+      redis:
+        condition: service_started
+      falkordb:
+        condition: service_started
+
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - "6380:6379"
+    volumes:
+      - falkordb-data:/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+volumes:
+  falkordb-data:

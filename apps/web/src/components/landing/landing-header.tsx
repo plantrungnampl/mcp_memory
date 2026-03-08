@@ -1,22 +1,22 @@
 import Link from "next/link";
-import { BrainCircuit, ExternalLink } from "lucide-react";
+import { Brain } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-import { navItems } from "./landing-data";
 import { LandingAuthControls } from "./landing-auth-controls";
+import { navItems } from "./landing-data";
 import styles from "./landing-page.module.css";
 
 export function LandingHeader() {
   return (
-    <header className={cn("sticky top-0 z-50 border-b border-white/5", styles.glassHeader)}>
-      <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-6">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-xl border border-[#7a2dbe]/30 bg-[#7a2dbe]/20">
-            <BrainCircuit className="size-5 text-[#00f5ff]" />
+    <header className={cn("border-b border-[#1f1f23]", styles.glassHeader)}>
+      <div className="mx-auto flex h-[76px] w-full max-w-[1440px] items-center justify-between px-6 md:px-20">
+        <div className="flex items-center gap-2.5">
+          <div className="flex size-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#7a2dbe] to-[#a855f7]">
+            <Brain className="size-5 text-white" />
           </div>
-          <span className="text-xl font-bold uppercase italic tracking-tight text-slate-100">
-            VibeRecall <span className="text-[#00f5ff]">PRO</span>
+          <span className={cn("text-[18px] font-semibold tracking-[0.16em] text-white", styles.fontMono)}>
+            VIBERECALL
           </span>
         </div>
 
@@ -25,11 +25,9 @@ export function LandingHeader() {
             <Link
               key={item.label}
               href={item.href}
-              className="flex items-center gap-1 text-sm font-medium text-slate-400 transition-colors hover:text-[#00f5ff]"
-              {...(item.external ? { target: "_blank", rel: "noreferrer" } : {})}
+              className={cn("text-sm font-medium text-[#adadb0] transition-colors hover:text-white", styles.navLink)}
             >
               {item.label}
-              {item.external ? <ExternalLink className="size-3.5" /> : null}
             </Link>
           ))}
         </nav>

@@ -13,13 +13,39 @@ def _parse_metadata(metadata) -> dict:
     return metadata or {}
 
 
+def _as_iso(value):
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+def _coerce_timestamptz(value: str | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    normalized = str(value).strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 async def create_episode(
     session: AsyncSession,
     *,
     episode_id: str,
     project_id: str,
     content: str | None,
-    reference_time: str | None,
+    reference_time: str | datetime | None,
     metadata_json: str,
     content_ref: str | None = None,
     summary: str | None = None,
@@ -39,7 +65,7 @@ async def create_episode(
         {
             "episode_id": episode_id,
             "project_id": project_id,
-            "reference_time": reference_time,
+            "reference_time": _coerce_timestamptz(reference_time),
             "content": content,
             "content_ref": content_ref,
             "summary": summary,
@@ -64,6 +90,55 @@ async def get_episode(session: AsyncSession, episode_id: str) -> dict | None:
         {"episode_id": episode_id},
     )
     row = result.mappings().first()
+    return dict(row) if row else None
+
+
+async def get_episode_for_project(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    episode_id: str,
+) -> dict | None:
+    result = await session.execute(
+        text(
+            """
+            select episode_id, project_id, reference_time, ingested_at, content_ref
+            from episodes
+            where project_id = :project_id
+              and episode_id = :episode_id
+            """
+        ),
+        {
+            "project_id": project_id,
+            "episode_id": episode_id,
+        },
+    )
+    row = result.mappings().first()
+    return dict(row) if row else None
+
+
+async def delete_episode_for_project(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    episode_id: str,
+) -> dict | None:
+    result = await session.execute(
+        text(
+            """
+            delete from episodes
+            where project_id = :project_id
+              and episode_id = :episode_id
+            returning episode_id, project_id, content_ref
+            """
+        ),
+        {
+            "project_id": project_id,
+            "episode_id": episode_id,
+        },
+    )
+    row = result.mappings().first()
+    await session.commit()
     return dict(row) if row else None
 
 
@@ -131,38 +206,44 @@ async def list_timeline_episodes(
     session: AsyncSession,
     *,
     project_id: str,
-    from_time: str | None,
-    to_time: str | None,
+    from_time: str | datetime | None,
+    to_time: str | datetime | None,
     limit: int,
     offset: int,
 ) -> list[dict]:
-    result = await session.execute(
-        text(
-            """
+    parsed_from_time = _coerce_timestamptz(from_time)
+    parsed_to_time = _coerce_timestamptz(to_time)
+    filters = ["project_id = :project_id"]
+    params: dict[str, object] = {
+        "project_id": project_id,
+        "limit": limit,
+        "offset": offset,
+    }
+    if parsed_from_time is not None:
+        filters.append("coalesce(reference_time, ingested_at) >= cast(:from_time as timestamptz)")
+        params["from_time"] = parsed_from_time
+    if parsed_to_time is not None:
+        filters.append("coalesce(reference_time, ingested_at) <= cast(:to_time as timestamptz)")
+        params["to_time"] = parsed_to_time
+
+    query = f"""
             select episode_id, reference_time, ingested_at, summary, metadata_json
             from episodes
-            where project_id = :project_id
-              and (:from_time is null or coalesce(reference_time, ingested_at) >= cast(:from_time as timestamptz))
-              and (:to_time is null or coalesce(reference_time, ingested_at) <= cast(:to_time as timestamptz))
+            where {" and ".join(filters)}
             order by coalesce(reference_time, ingested_at) desc, episode_id desc
             limit :limit offset :offset
             """
-        ),
-        {
-            "project_id": project_id,
-            "from_time": from_time,
-            "to_time": to_time,
-            "limit": limit,
-            "offset": offset,
-        },
+    result = await session.execute(
+        text(query),
+        params,
     )
     rows = []
     for row in result.mappings().all():
         rows.append(
             {
                 "episode_id": row["episode_id"],
-                "reference_time": row["reference_time"],
-                "ingested_at": row["ingested_at"],
+                "reference_time": _as_iso(row["reference_time"]),
+                "ingested_at": _as_iso(row["ingested_at"]),
                 "summary": row["summary"],
                 "metadata": _parse_metadata(row["metadata_json"]),
             }
@@ -177,6 +258,7 @@ async def list_recent_raw_episodes(
     query: str,
     window_seconds: int,
     limit: int,
+    offset: int,
 ) -> list[dict]:
     window_start = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
     result = await session.execute(
@@ -189,6 +271,7 @@ async def list_recent_raw_episodes(
               and enrichment_status != 'complete'
               and (coalesce(content, '') ilike :query or coalesce(summary, '') ilike :query)
             order by ingested_at desc, episode_id desc
+            offset :offset
             limit :limit
             """
         ),
@@ -196,6 +279,7 @@ async def list_recent_raw_episodes(
             "project_id": project_id,
             "window_start": window_start,
             "query": f"%{query}%",
+            "offset": offset,
             "limit": limit,
         },
     )
@@ -204,8 +288,8 @@ async def list_recent_raw_episodes(
         rows.append(
             {
                 "episode_id": row["episode_id"],
-                "reference_time": row["reference_time"],
-                "ingested_at": row["ingested_at"],
+                "reference_time": _as_iso(row["reference_time"]),
+                "ingested_at": _as_iso(row["ingested_at"]),
                 "summary": row["summary"] or ((row["content"] or "")[:160]),
                 "metadata": _parse_metadata(row["metadata_json"]),
             }
@@ -234,8 +318,8 @@ async def list_project_episodes_for_export(
         rows.append(
             {
                 "episode_id": row["episode_id"],
-                "reference_time": row["reference_time"],
-                "ingested_at": row["ingested_at"],
+                "reference_time": _as_iso(row["reference_time"]),
+                "ingested_at": _as_iso(row["ingested_at"]),
                 "summary": row["summary"],
                 "metadata": _parse_metadata(row["metadata_json"]),
             }

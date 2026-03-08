@@ -4,7 +4,7 @@ create table if not exists projects (
   owner_id text null,
   plan text not null default 'free',
   retention_days integer not null default 30,
-  isolation_mode text not null default 'neo4j_database',
+  isolation_mode text not null default 'falkordb_graph',
   created_at timestamptz not null default now()
 );
 
@@ -30,6 +30,7 @@ create table if not exists audit_logs (
   action text not null,
   args_hash text null,
   status text not null,
+  latency_ms double precision null,
   created_at timestamptz not null default now()
 );
 

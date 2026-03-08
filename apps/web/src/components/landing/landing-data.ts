@@ -1,39 +1,41 @@
-export type AccentTone = "primary" | "accent";
-
 export type NavItem = {
   label: string;
   href: string;
-  external?: boolean;
 };
+
+export type FeatureTone = "primary" | "accent" | "success";
 
 export type FeatureItem = {
   title: string;
   description: string;
-  tone: AccentTone;
+  tone: FeatureTone;
 };
 
 export type HowItWorksStep = {
+  number: string;
   title: string;
   description: string;
-  tone: AccentTone;
+  icon: "plug" | "code" | "search";
 };
 
 export type TemporalEdgeItem = {
-  title: string;
-  description: string;
-  tone: AccentTone;
+  text: string;
 };
 
 export type PricingPlan = {
   name: string;
   price: string;
   cadence: string;
+  description: string;
   ctaLabel: string;
   highlighted?: boolean;
-  features: Array<{
-    label: string;
-    included: boolean;
-  }>;
+  features: string[];
+};
+
+export type SecurityCard = {
+  title: string;
+  description: string;
+  icon: "shield" | "lock" | "award";
 };
 
 export type FaqItem = {
@@ -41,11 +43,16 @@ export type FaqItem = {
   answer: string;
 };
 
+export type FooterLinkColumn = {
+  title: string;
+  links: string[];
+};
+
 export const navItems: NavItem[] = [
   { label: "Features", href: "#features" },
+  { label: "How It Works", href: "#how-it-works" },
   { label: "Pricing", href: "#pricing" },
   { label: "Docs", href: "/docs" },
-  { label: "GitHub", href: "#", external: true },
 ];
 
 export const compatibilityLabels = ["Claude Code", "Cursor", "Windsurf", "VS Code"];
@@ -54,136 +61,156 @@ export const featureItems: FeatureItem[] = [
   {
     title: "Temporal Knowledge Graph",
     description:
-      "Powered by Graphiti for deep context mapping. Maps relationships between code entities over time.",
+      "Automatically builds a rich graph of entities, relationships, and decisions from your coding sessions.",
     tone: "primary",
   },
   {
-    title: "Multi-session Recall",
+    title: "Multi-Session Recall",
     description:
-      "Carry context seamlessly across sessions. Close your editor, come back weeks later, your agent still knows.",
-    tone: "accent",
+      "Your agent remembers context from days, weeks, or months ago — no more repeating yourself every session.",
+    tone: "primary",
   },
   {
     title: "100% Project Isolation",
     description:
-      "Strict boundaries for security. Context from Project A will never leak into Project B. Private and secure.",
-    tone: "primary",
+      "Hard-wired data boundaries ensure zero cross-project leakage. Each project lives in its own secure namespace.",
+    tone: "success",
   },
   {
-    title: "Bi-temporal Awareness",
+    title: "Bi-Temporal Awareness",
     description:
-      'Understand the "Why" and "When". See how your logic evolved to prevent repeating past architectural mistakes.',
+      "Distinguishes when events happened vs. when they were recorded. Time-travel through your project's history.",
     tone: "accent",
   },
 ];
 
 export const howItWorksSteps: HowItWorksStep[] = [
   {
-    title: "1. Connect MCP",
+    number: "01",
+    icon: "plug",
+    title: "Connect via MCP",
     description:
-      "Paste your unique VibeRecall URL into Cursor, Claude, or Windsurf settings in seconds.",
-    tone: "primary",
+      "Add VibeRecall to your IDE in seconds. One config line and your agent has persistent memory.",
   },
   {
-    title: "2. Code Naturally",
+    number: "02",
+    icon: "code",
+    title: "Code Naturally",
     description:
-      "The agent automatically saves coding episodes and architectural decisions to your graph.",
-    tone: "accent",
+      "Work as you normally do. VibeRecall silently captures decisions, patterns, and context in the background.",
   },
   {
-    title: "3. Precise Recall",
+    number: "03",
+    icon: "search",
+    title: "Precise Recall",
     description:
-      'Ask "Why did we choose this pattern?" and get an immediate, context-aware answer.',
-    tone: "primary",
+      "Ask anything about your project history. Get instant, contextual answers backed by your real coding timeline.",
   },
 ];
 
 export const temporalEdgeItems: TemporalEdgeItem[] = [
-  {
-    title: "Bi-temporal Awareness",
-    description:
-      "Track events by both when they happened in your project history and when they were recorded in the system.",
-    tone: "accent",
-  },
-  {
-    title: "Incremental Memory Updates",
-    description:
-      "Only new context is ingested. No more re-sending massive files to your agent's context window.",
-    tone: "primary",
-  },
-  {
-    title: "Entity Relationship Graph",
-    description:
-      "Memory isn't a flat file; it's a living graph of your code's entities, functions, and logic chains.",
-    tone: "accent",
-  },
+  { text: "Bi-temporal awareness — event time vs. transaction time" },
+  { text: "Incremental memory — no massive context windows" },
+  { text: "Entity-relationship graph for deep project understanding" },
+  { text: "Hybrid search — semantic + temporal filtering" },
 ];
 
 export const pricingPlans: PricingPlan[] = [
   {
     name: "Free",
     price: "$0",
-    cadence: "/forever",
-    ctaLabel: "Get Started",
+    cadence: "/month",
+    description: "Perfect for trying out memory-powered coding.",
+    ctaLabel: "Start Free",
     features: [
-      { label: "Basic memory persistence", included: true },
-      { label: "100 VibeTokens / month", included: true },
-      { label: "No Priority Support", included: false },
+      "100 VibeTokens / month",
+      "1 project",
+      "Basic memory persistence",
+      "Community support",
     ],
   },
   {
     name: "Pro",
     price: "$9",
     cadence: "/month",
-    ctaLabel: "Go Pro Now",
+    description: "For developers who ship fast and need full recall.",
+    ctaLabel: "Get Pro",
     highlighted: true,
     features: [
-      { label: "Unlimited Session History", included: true },
-      { label: "5,000 VibeTokens / month", included: true },
-      { label: "Priority Recall Speed", included: true },
-      { label: "Advanced Graph Insight", included: true },
+      "5,000 VibeTokens / month",
+      "Unlimited projects",
+      "Advanced temporal search",
+      "Priority support",
+      "JSON export",
     ],
   },
   {
     name: "Team",
     price: "$29",
     cadence: "/month",
+    description: "For teams building complex projects together.",
     ctaLabel: "Contact Sales",
     features: [
-      { label: "Shared Team Workspace", included: true },
-      { label: "Unlimited VibeTokens", included: true },
-      { label: "Admin Dashboard & Controls", included: true },
+      "Unlimited VibeTokens",
+      "Shared team workspace",
+      "Admin controls & audit logs",
+      "Dedicated support + SLA",
     ],
   },
 ];
 
-export const securityHighlights = [
-  "100% Project Isolation - No Cross-Project Leakage",
-  "AES-256 Encryption at Rest & In-Transit",
-  "SOC2 Type II Ready Architecture",
+export const securityCards: SecurityCard[] = [
+  {
+    icon: "shield",
+    title: "100% Project Isolation",
+    description: "Hard data boundaries per project. Zero cross-contamination.",
+  },
+  {
+    icon: "lock",
+    title: "AES-256 Encryption",
+    description: "All data encrypted at rest and in transit. Your memories are yours alone.",
+  },
+  {
+    icon: "award",
+    title: "SOC2 Type II Ready",
+    description: "Enterprise-grade compliance. Audit logs for every operation.",
+  },
 ];
 
 export const faqItems: FaqItem[] = [
   {
-    question: "Is my data private?",
+    question: "Is my code stored or analyzed?",
     answer:
-      "Yes. Each project has its own isolated memory graph. We never use your data to train models, and our infrastructure follows strict SOC2 guidelines.",
+      "No. VibeRecall stores facts, decisions, and context — not your actual source code. Your codebase stays on your machine.",
   },
   {
-    question: "Does this add latency to my agent?",
+    question: "How much latency does VibeRecall add?",
     answer:
-      "VibeRecall is built for speed. Recall queries typically take less than 150ms, ensuring your agent's response time remains snappy.",
+      "Near-zero. Saves are fast-acknowledged and processed asynchronously. Searches use hybrid retrieval optimized for sub-second response times.",
   },
   {
     question: "What are VibeTokens?",
     answer:
-      "VibeTokens are our unit of measure for memory storage and indexing. 5,000 tokens per month is typically enough for active development on 3-4 medium-sized projects.",
+      "VibeTokens are the usage unit for VibeRecall. Each save, search, or fact update consumes tokens. Plans include monthly token allowances with rollover.",
   },
   {
-    question: "Can I export my memory?",
+    question: "Can I export my data?",
     answer:
-      "Absolutely. You can export your entire knowledge graph as a structured JSON file at any time from the dashboard.",
+      "Yes. Pro and Team plans include full JSON export of all your project memory — episodes, facts, and the complete knowledge graph.",
   },
 ];
 
-export const footerLinks = ["Terms", "Privacy", "Security", "Status"];
+export const footerColumns: FooterLinkColumn[] = [
+  {
+    title: "Product",
+    links: ["Features", "Pricing", "Documentation", "Changelog"],
+  },
+  {
+    title: "Company",
+    links: ["About", "Blog", "Contact"],
+  },
+  {
+    title: "Legal",
+    links: ["Privacy Policy", "Terms of Service"],
+  },
+];

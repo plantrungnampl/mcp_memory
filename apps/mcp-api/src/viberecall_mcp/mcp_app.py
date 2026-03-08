@@ -25,7 +25,7 @@ from viberecall_mcp.errors import ToolRuntimeError
 from viberecall_mcp.ids import new_id
 from viberecall_mcp.metrics import mcp_initialize_latency_ms, tool_call_latency_ms
 from viberecall_mcp.mcp_server import tool_error
-from viberecall_mcp.neo4j_routing import project_db_name
+from viberecall_mcp.graph_routing import project_graph_name
 from viberecall_mcp.repositories.audit_logs import insert_audit_log
 from viberecall_mcp.repositories.tokens import touch_token_usage
 from viberecall_mcp.request_context import (
@@ -34,11 +34,17 @@ from viberecall_mcp.request_context import (
     reset_request_context,
     set_request_context,
 )
-from viberecall_mcp.tool_access import is_tool_allowed_for_plan
+from viberecall_mcp.tool_access import filter_tools_for_plan
 from viberecall_mcp.tool_handlers import (
+    handle_delete_episode,
+    handle_get_context_pack,
+    handle_get_status,
     handle_get_facts,
+    handle_index_repo,
+    handle_index_status,
     handle_save,
     handle_search,
+    handle_search_entities,
     handle_timeline,
     handle_update_fact,
 )
@@ -121,7 +127,7 @@ def token_from_request_context(request_context: RequestContext) -> Authenticated
         project_id=request_context.project_id or "",
         scopes=list(request_context.scopes),
         plan=request_context.plan,
-        db_name=request_context.db_name or project_db_name(request_context.project_id or ""),
+        db_name=request_context.db_name or project_graph_name(request_context.project_id or ""),
     )
 
 
@@ -170,7 +176,7 @@ class VibeRecallMiddleware(Middleware):
         request_context = RequestContext(
             request_id=request_id,
             project_id=project_id,
-            db_name=project_db_name(project_id) if project_id else None,
+            db_name=project_graph_name(project_id) if project_id else None,
             idempotency_key=request.headers.get("Idempotency-Key"),
         )
 
@@ -221,11 +227,8 @@ class VibeRecallMiddleware(Middleware):
         context: MiddlewareContext[types.ListToolsRequest],
         call_next: Callable[[MiddlewareContext[types.ListToolsRequest]], Awaitable[list[Any]]],
     ) -> list[Any]:
-        tools = list(await call_next(context))
         request_context = get_authenticated_request_context()
-        filtered_tools = [
-            tool for tool in tools if is_tool_allowed_for_plan(request_context.plan or "", tool.name)
-        ]
+        tools = filter_tools_for_plan(request_context.plan or "free", list(await call_next(context)))
         async with open_db_session() as session:
             await insert_audit_log(
                 session,
@@ -235,7 +238,7 @@ class VibeRecallMiddleware(Middleware):
                 project_id=request_context.project_id,
                 token_id=request_context.token_id,
             )
-        return filtered_tools
+        return tools
 
 
 async def run_tool(tool_name: str, arguments: dict[str, Any]) -> ToolResult:
@@ -291,6 +294,48 @@ async def run_tool(tool_name: str, arguments: dict[str, Any]) -> ToolResult:
                         token=token,
                         arguments=handler_arguments,
                     )
+                elif tool_name == "viberecall_get_status":
+                    payload = await handle_get_status(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_delete_episode":
+                    payload = await handle_delete_episode(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_index_repo":
+                    payload = await handle_index_repo(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_index_status":
+                    payload = await handle_index_status(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_search_entities":
+                    payload = await handle_search_entities(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_get_context_pack":
+                    payload = await handle_get_context_pack(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
                 else:
                     payload = tool_error(
                         request_context.request_id,
@@ -299,17 +344,37 @@ async def run_tool(tool_name: str, arguments: dict[str, Any]) -> ToolResult:
                     )
             except Exception as exc:  # noqa: BLE001
                 payload = runtime_error_to_envelope(request_context.request_id, exc)
-                await insert_audit_log(
-                    session,
-                    request_id=request_context.request_id,
-                    action="tools/call",
-                    status="error",
-                    project_id=request_context.project_id,
-                    token_id=request_context.token_id,
-                    tool_name=tool_name,
-                    args_hash=args_hash,
-                )
+                try:
+                    await session.rollback()
+                except Exception as rollback_exc:  # noqa: BLE001
+                    logger.warning(
+                        "tool_call_rollback_failed",
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id,
+                        tool_name=tool_name,
+                        error=str(rollback_exc),
+                    )
                 elapsed_ms = (time.perf_counter() - start) * 1000
+                try:
+                    await insert_audit_log(
+                        session,
+                        request_id=request_context.request_id,
+                        action="tools/call",
+                        status="error",
+                        project_id=request_context.project_id,
+                        token_id=request_context.token_id,
+                        tool_name=tool_name,
+                        args_hash=args_hash,
+                        latency_ms=elapsed_ms,
+                    )
+                except Exception as audit_exc:  # noqa: BLE001
+                    logger.warning(
+                        "tool_call_error_audit_failed",
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id,
+                        tool_name=tool_name,
+                        error=str(audit_exc),
+                    )
                 tool_call_latency_ms.labels(tool=tool_name).observe(elapsed_ms)
                 logger.info(
                     "tool_call",
@@ -325,17 +390,27 @@ async def run_tool(tool_name: str, arguments: dict[str, Any]) -> ToolResult:
                 )
                 return as_tool_result(payload)
 
-            await insert_audit_log(
-                session,
-                request_id=request_context.request_id,
-                action="tools/call",
-                status="ok",
-                project_id=request_context.project_id,
-                token_id=request_context.token_id,
-                tool_name=tool_name,
-                args_hash=args_hash,
-            )
             elapsed_ms = (time.perf_counter() - start) * 1000
+            try:
+                await insert_audit_log(
+                    session,
+                    request_id=request_context.request_id,
+                    action="tools/call",
+                    status="ok",
+                    project_id=request_context.project_id,
+                    token_id=request_context.token_id,
+                    tool_name=tool_name,
+                    args_hash=args_hash,
+                    latency_ms=elapsed_ms,
+                )
+            except Exception as audit_exc:  # noqa: BLE001
+                logger.warning(
+                    "tool_call_success_audit_failed",
+                    request_id=request_context.request_id,
+                    project_id=request_context.project_id,
+                    tool_name=tool_name,
+                    error=str(audit_exc),
+                )
             tool_call_latency_ms.labels(tool=tool_name).observe(elapsed_ms)
             logger.info(
                 "tool_call",

@@ -5,26 +5,15 @@ import {
   getProjectsOverview,
   type ControlPlaneUser,
 } from "@/lib/api/control-plane";
+import { getAuthenticatedControlPlaneUser } from "@/lib/auth/authenticated-user";
 import type { ProjectOverviewRow, ProjectSummary } from "@/lib/api/types";
-import { getServerSupabaseClient } from "@/lib/supabase/server";
 
 export type AuthenticatedProjectUser = ControlPlaneUser & {
   email: string | null;
 };
 
 export async function getAuthenticatedProjectUser(): Promise<AuthenticatedProjectUser | null> {
-  const supabase = await getServerSupabaseClient();
-  const auth = supabase ? await supabase.auth.getUser() : { data: { user: null } };
-  const authUser = auth.data.user;
-
-  if (!authUser) {
-    return null;
-  }
-
-  return {
-    id: authUser.id,
-    email: authUser.email ?? null,
-  };
+  return getAuthenticatedControlPlaneUser();
 }
 
 export async function getProjectsBaseData(

@@ -1,0 +1,113 @@
+services:
+  - type: web
+    name: viberecall-api
+    env: docker
+    dockerfilePath: ./apps/mcp-api/Dockerfile
+    dockerContext: .
+    autoDeploy: false
+    healthCheckPath: /healthz
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: MEMORY_BACKEND
+        value: falkordb
+      - key: KV_BACKEND
+        value: redis
+      - key: QUEUE_BACKEND
+        value: celery
+      - key: FALKORDB_HOST
+        value: viberecall-falkordb
+      - key: FALKORDB_PORT
+        value: "6379"
+      - key: FALKORDB_GRAPH_PREFIX
+        value: vr-
+      - key: INDEX_REPO_ALLOWED_ROOTS
+        value: /app
+      - key: PUBLIC_MCP_BASE_URL
+        sync: false
+      - key: PUBLIC_WEB_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: TOKEN_PEPPER
+        sync: false
+      - key: CONTROL_PLANE_INTERNAL_SECRET
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false
+      - key: CELERY_RESULT_BACKEND
+        sync: false
+      - key: EXPORT_SIGNING_SECRET
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+
+  - type: worker
+    name: viberecall-worker
+    env: docker
+    dockerfilePath: ./apps/mcp-api/Dockerfile
+    dockerContext: .
+    autoDeploy: false
+    dockerCommand: celery -A viberecall_mcp.workers.celery_app worker -l info -Q memory --pool=solo --concurrency=1
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: MEMORY_BACKEND
+        value: falkordb
+      - key: KV_BACKEND
+        value: redis
+      - key: QUEUE_BACKEND
+        value: celery
+      - key: FALKORDB_HOST
+        value: viberecall-falkordb
+      - key: FALKORDB_PORT
+        value: "6379"
+      - key: FALKORDB_GRAPH_PREFIX
+        value: vr-
+      - key: INDEX_REPO_ALLOWED_ROOTS
+        value: /app
+      - key: PUBLIC_MCP_BASE_URL
+        sync: false
+      - key: PUBLIC_WEB_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: TOKEN_PEPPER
+        sync: false
+      - key: CONTROL_PLANE_INTERNAL_SECRET
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false
+      - key: CELERY_RESULT_BACKEND
+        sync: false
+      - key: EXPORT_SIGNING_SECRET
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+
+  - type: pserv
+    name: viberecall-falkordb
+    env: docker
+    dockerfilePath: ./ops/render/falkordb/Dockerfile
+    dockerContext: .
+    autoDeploy: false
+    disk:
+      name: viberecall-falkordb-data
+      mountPath: /data
+      sizeGB: 10

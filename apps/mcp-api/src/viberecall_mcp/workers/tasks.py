@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 
+from viberecall_mcp.code_index import run_index_job as run_index_snapshot_job
 from viberecall_mcp.config import get_settings
 from viberecall_mcp.exports import (
     build_signed_download,
@@ -52,6 +54,7 @@ from viberecall_mcp.workers.celery_app import celery_app
 
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def _iso(value) -> str | None:
@@ -62,6 +65,37 @@ def _iso(value) -> str | None:
     if isinstance(value, datetime):
         return value.astimezone(timezone.utc).isoformat()
     return str(value)
+
+
+def _format_public_export_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    if not message:
+        return "Export failed unexpectedly. Please retry in a few seconds."
+
+    lower = message.lower()
+    if (
+        "couldn't connect" in lower
+        or "failed to establish connection" in lower
+        or "connection refused" in lower
+        or "connect call failed" in lower
+        or "resolvedipv4address" in lower
+        or "resolvedipv6address" in lower
+    ):
+        return (
+            "Export failed because the memory backend is unreachable. "
+            "Check FalkorDB service and FALKORDB_HOST/FALKORDB_PORT, then retry."
+        )
+
+    if "authentication" in lower and ("falkordb" in lower or "redis" in lower):
+        return (
+            "Export failed because FalkorDB credentials are invalid. "
+            "Verify FALKORDB_USERNAME and FALKORDB_PASSWORD, then retry."
+        )
+
+    if "timeout" in lower:
+        return "Export timed out while collecting project memory. Please retry in a few minutes."
+
+    return "Export failed unexpectedly. Please retry in a few seconds."
 
 
 async def _collect_all_facts(project_id: str) -> list[dict]:
@@ -360,7 +394,16 @@ async def run_export_job(
             job_duration_ms.labels(job="export").observe((time.perf_counter() - started) * 1000)
             return {"status": "complete", "export_id": export_id, "object_url": object_url}
         except Exception as exc:  # noqa: BLE001
-            await mark_export_failed(session, export_id=export_id, error=str(exc))
+            logger.exception(
+                "Export job failed",
+                extra={
+                    "project_id": project_id,
+                    "export_id": export_id,
+                    "request_id": request_id,
+                },
+            )
+            public_error = _format_public_export_error(exc)
+            await mark_export_failed(session, export_id=export_id, error=public_error)
             await insert_audit_log(
                 session,
                 request_id=request_id,
@@ -601,6 +644,17 @@ async def run_migrate_inline_to_object_job(
             raise
 
 
+async def run_index_job(*, index_id: str) -> dict:
+    started = time.perf_counter()
+    try:
+        result = await run_index_snapshot_job(index_id=index_id)
+        job_duration_ms.labels(job="index_repo").observe((time.perf_counter() - started) * 1000)
+        return result
+    except Exception:
+        job_duration_ms.labels(job="index_repo").observe((time.perf_counter() - started) * 1000)
+        raise
+
+
 @celery_app.task(
     name="viberecall.ingest_episode",
     autoretry_for=(Exception,),
@@ -730,3 +784,17 @@ def migrate_inline_to_object_task(project_id: str, request_id: str, token_id: st
             force=force,
         )
     )
+
+
+@celery_app.task(
+    name="viberecall.index_repo",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    max_retries=5,
+)
+def index_repo_task(index_id: str, project_id: str, request_id: str, token_id: str | None) -> dict:
+    import asyncio
+
+    _ = (project_id, request_id, token_id)
+    return asyncio.run(run_index_job(index_id=index_id))

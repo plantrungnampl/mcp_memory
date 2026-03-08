@@ -91,7 +91,7 @@ async def create_project(
     name: str,
     plan: str,
     retention_days: int = 30,
-    isolation_mode: str = "neo4j_database",
+    isolation_mode: str = "falkordb_graph",
 ) -> dict:
     result = await session.execute(
         text(

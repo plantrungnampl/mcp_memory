@@ -168,6 +168,84 @@ TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
             },
         },
     ),
+    ToolDefinition(
+        name="viberecall_get_status",
+        description="Get MCP runtime and backend status for the current project.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_delete_episode",
+        description="Delete one episode and related memory artifacts for the current project.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "episode_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            },
+            "required": ["episode_id"],
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_index_repo",
+        description="Index a code repository for project-aware context retrieval.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "repo_path": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "mode": {"type": "string", "enum": ["snapshot", "diff"], "default": "snapshot"},
+                "base_ref": {"type": ["string", "null"], "default": None, "maxLength": 256},
+                "head_ref": {"type": ["string", "null"], "default": None, "maxLength": 256},
+                "max_files": {"type": "integer", "minimum": 1, "maximum": 20000, "default": 5000},
+            },
+            "required": ["repo_path"],
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_index_status",
+        description="Get repository index status for the current project.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_search_entities",
+        description="Search indexed project entities (files, modules, symbols) with relevance scores.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "query": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "entity_types": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 64},
+                    "maxItems": 20,
+                    "default": [],
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+            },
+            "required": ["query"],
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_get_context_pack",
+        description="Build a structured project context pack with architecture map, symbols, and citations.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "query": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 12},
+            },
+            "required": ["query"],
+        },
+    ),
 )
 
 

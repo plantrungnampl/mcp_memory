@@ -30,18 +30,18 @@ uv run pytest -q                                                # run all tests
 uv run pytest tests/test_mcp_tools.py -q                        # run a single test file
 ```
 
-### Run with local Neo4j + Redis
+### Run with local FalkorDB + Redis
 ```bash
 docker compose -f ops/docker-compose.runtime.yml up -d
 cd apps/mcp-api
-MEMORY_BACKEND=neo4j KV_BACKEND=redis QUEUE_BACKEND=eager \
+MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=eager \
   uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
 ```
 
 ### Run Celery worker
 ```bash
 cd apps/mcp-api
-MEMORY_BACKEND=neo4j KV_BACKEND=redis QUEUE_BACKEND=celery \
+MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=celery \
   uv run celery -A viberecall_mcp.workers.celery_app worker -l info
 ```
 
@@ -49,7 +49,7 @@ MEMORY_BACKEND=neo4j KV_BACKEND=redis QUEUE_BACKEND=celery \
 ```bash
 cd apps/mcp-api
 RUN_RUNTIME_INTEGRATION=1 uv run pytest tests/test_runtime_integration.py -q
-RUN_RUNTIME_E2E_CELERY=1 MEMORY_BACKEND=neo4j KV_BACKEND=redis QUEUE_BACKEND=celery \
+RUN_RUNTIME_E2E_CELERY=1 MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=celery \
   uv run pytest tests/test_runtime_e2e_celery.py -q
 ```
 
@@ -65,13 +65,13 @@ RUN_RUNTIME_E2E_CELERY=1 MEMORY_BACKEND=neo4j KV_BACKEND=redis QUEUE_BACKEND=cel
 - `tool_registry.py` — schema/definition registry for all five MCP tools.
 
 **Runtime backend selection** (`runtime.py`) — selectors are read from env vars at startup; singletons are created once and returned by getter functions:
-- `MEMORY_BACKEND=local|neo4j|graphiti` → `LocalMemoryCore` / `Neo4jMemoryCore` / `GraphitiMemoryCore`
+- `MEMORY_BACKEND=local|falkordb|graphiti` → `LocalMemoryCore` / `FalkorDBMemoryCore` / `GraphitiMemoryCore`
 - `KV_BACKEND=local|redis` → `LocalIdempotencyStore` + `LocalRateLimiter` / Redis equivalents
 - `QUEUE_BACKEND=eager|celery` → `EagerTaskQueue` (runs inline) / `CeleryTaskQueue`
 
-Default (`local/local/eager`) requires no external services. Production uses `neo4j/redis/celery`.
+Default (`local/local/eager`) requires no external services. Production uses `falkordb/redis/celery`.
 
-**Memory core interface** (`memory_core/interface.py`) — all adapters implement this interface. Neo4j uses per-project databases named `vr-<project_id>` (safe chars). Graphiti wraps `graphiti-core` behind the same interface.
+**Memory core interface** (`memory_core/interface.py`) — all adapters implement this interface. FalkorDB uses per-project graph names `vr-<project_id>` (safe chars). Graphiti wraps `graphiti-core` behind the same interface.
 
 **Control-plane** (`control_plane.py`) — project CRUD, token lifecycle (mint/rotate/revoke), usage rollups, exports, billing overview, API logs, Stripe webhook, maintenance actions (retention/purge/migrate-inline-to-object). All routes require `X-Control-Plane-Secret` and `X-Control-Plane-User-Id` headers from the web BFF.
 
@@ -81,7 +81,7 @@ Default (`local/local/eager`) requires no external services. Production uses `ne
 
 **Config** (`config.py`) — `get_settings()` is `@lru_cache`. Settings reads `/.env` from repo root first, then falls back to `apps/mcp-api/.env`.
 
-**DB migrations** — plain SQL files in `apps/mcp-api/migrations/`, numbered `001`–`007`. Apply manually or via Supabase MCP.
+**DB migrations** — plain SQL files in `apps/mcp-api/migrations/`, numbered `001`–`010`. Apply manually or via Supabase MCP.
 
 **Repositories** (`repositories/`) — one module per entity: `projects`, `tokens`, `episodes`, `usage_events`, `exports`, `audit_logs`, `maintenance`, `webhooks`.
 
@@ -105,7 +105,7 @@ Default (`local/local/eager`) requires no external services. Production uses `ne
 - **Business logic lives in** `src/lib` (web) and `src/viberecall_mcp` (backend) — not in UI glue or routes.
 - **Token revocation:** `revoked_at > now` means the token is still in its grace window and is treated as valid.
 - **Idempotency:** mutations accept an `Idempotency-Key` header; the backend deduplicates by `provider + event_id` for webhooks.
-- **Neo4j database naming:** per-project databases use Neo4j-safe identifiers with `-` separators (e.g. `vr-<id>`); admin statements must quote database names.
+- **Graph naming:** per-project FalkorDB graph names use safe identifiers with `-` separators (e.g. `vr-<id>`).
 - **Purge safety:** purge operations require the caller to type the exact `project_id` to confirm.
 - **MCP endpoint URL:** built from `PUBLIC_MCP_BASE_URL`, not inferred from the request host.
 

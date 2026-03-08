@@ -93,3 +93,12 @@ class TaskQueue(Protocol):
         token_id: str | None,
         force: bool,
     ) -> str: ...
+
+    async def enqueue_index_repo(
+        self,
+        *,
+        index_id: str,
+        project_id: str,
+        request_id: str,
+        token_id: str | None,
+    ) -> str: ...

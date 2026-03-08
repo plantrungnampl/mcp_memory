@@ -40,7 +40,7 @@ async def main() -> None:
                 "owner_id": "dev-user",
                 "plan": "pro",
                 "retention_days": 30,
-                "isolation_mode": "neo4j_database",
+                "isolation_mode": "falkordb_graph",
             },
         )
         await conn.execute(

@@ -1,41 +1,114 @@
+import "server-only";
+
 import type {
+  ApiLogsRange,
+  ApiLogsStatusFilter,
   CreatedProjectResult,
   MaintenanceJob,
+  ProjectGraphEntityDetail,
+  ProjectGraphPayload,
+  ProjectApiLogsAnalyticsPayload,
   ProjectApiLogsPage,
   ProjectBillingOverview,
+  ProjectTimelinePayload,
   McpConnectionInfo,
   ProjectOverviewRow,
   PlaintextTokenReveal,
   ProjectExport,
   ProjectSummary,
   ProjectToken,
+  UsageAnalyticsPayload,
+  UsageRange,
   UsageSeries,
   UsageSummary,
 } from "@/lib/api/types";
+import {
+  createControlPlaneHeaders,
+  getControlPlaneRequestMeta,
+  type ControlPlaneUser,
+} from "@/lib/api/control-plane-headers";
 import { serverEnv } from "@/lib/server-env";
 
-export type ControlPlaneUser = {
-  id: string;
-  email?: string | null;
-};
+const nativeFetch = globalThis.fetch.bind(globalThis);
 
-function controlPlaneHeaders(
-  user: ControlPlaneUser,
-  extraHeaders?: Record<string, string>,
-): HeadersInit {
-  return {
-    "Content-Type": "application/json",
-    "X-Control-Plane-Secret": serverEnv.controlPlaneInternalSecret,
-    "X-Control-Plane-User-Id": user.id,
-    "X-Control-Plane-User-Email": user.email ?? "",
-    ...extraHeaders,
-  };
+function getRequestPath(input: Parameters<typeof globalThis.fetch>[0]): string {
+  if (typeof input === "string") {
+    return new URL(input).pathname;
+  }
+  if (input instanceof URL) {
+    return input.pathname;
+  }
+  return new URL(input.url).pathname;
 }
+
+function logControlPlaneEvent(level: "info" | "warn" | "error", payload: Record<string, unknown>): void {
+  console[level](
+    JSON.stringify({
+      component: "control-plane-bff",
+      ...payload,
+    }),
+  );
+}
+
+async function fetchControlPlane(
+  input: Parameters<typeof globalThis.fetch>[0],
+  init?: Parameters<typeof globalThis.fetch>[1],
+): Promise<Response> {
+  const meta = getControlPlaneRequestMeta(init?.headers);
+  const method = (init?.method ?? "GET").toUpperCase();
+  const path = getRequestPath(input);
+
+  if (meta) {
+    logControlPlaneEvent("info", {
+      event: "control_plane_request_start",
+      request_id: meta.requestId,
+      method,
+      path,
+      assertion_attached: meta.assertionAttached,
+      user_id_present: meta.userIdPresent,
+    });
+  }
+
+  try {
+    const response = await nativeFetch(input, init);
+    if (meta) {
+      logControlPlaneEvent(response.ok ? "info" : "warn", {
+        event: "control_plane_request_complete",
+        request_id: response.headers.get("X-Request-Id") ?? meta.requestId,
+        method,
+        path,
+        status: response.status,
+        assertion_attached: meta.assertionAttached,
+        user_id_present: meta.userIdPresent,
+      });
+    }
+    return response;
+  } catch (error) {
+    if (meta) {
+      logControlPlaneEvent("error", {
+        event: "control_plane_request_network_error",
+        request_id: meta.requestId,
+        method,
+        path,
+        assertion_attached: meta.assertionAttached,
+        user_id_present: meta.userIdPresent,
+        error: error instanceof Error ? error.message : "Unknown network error",
+      });
+    }
+    throw error;
+  }
+}
+
+const fetch: typeof globalThis.fetch = fetchControlPlane;
+export { createControlPlaneHeaders, type ControlPlaneUser } from "@/lib/api/control-plane-headers";
+const controlPlaneHeaders = createControlPlaneHeaders;
 
 async function parseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Control-plane request failed (${response.status}): ${body}`);
+    const requestId = response.headers.get("X-Request-Id");
+    const requestIdSegment = requestId ? ` [request_id=${requestId}]` : "";
+    throw new Error(`Control-plane request failed (${response.status})${requestIdSegment}: ${body}`);
   }
 
   return response.json() as Promise<T>;
@@ -346,6 +419,345 @@ export async function getUsageSeries(
   };
 }
 
+export async function getUsageAnalytics(
+  user: ControlPlaneUser,
+  projectId: string,
+  range: UsageRange,
+): Promise<UsageAnalyticsPayload> {
+  const response = await fetch(
+    `${serverEnv.controlPlaneApiBaseUrl}/api/control-plane/projects/${projectId}/usage/analytics?range=${range}`,
+    {
+      cache: "no-store",
+      headers: controlPlaneHeaders(user),
+    },
+  );
+  const payload = await parseJson<{
+    range: UsageRange;
+    window_days: number;
+    date_range_label: string;
+    summary: {
+      api_calls: { value: number | null; change_pct: number | null };
+      tokens_consumed: { value: number | null; change_pct: number | null };
+      avg_response_time_ms: { value: number | null; change_pct: number | null };
+      error_rate_pct: { value: number | null; change_pct: number | null };
+    };
+    trend: Array<{
+      bucket_start: string;
+      day_label: string;
+      api_calls: number;
+      vibe_tokens: number;
+    }>;
+    tool_distribution: Array<{
+      tool: string;
+      api_calls: number;
+      share_pct: number;
+    }>;
+    token_breakdown: Array<{
+      token_id: string;
+      prefix: string;
+      status: "active" | "grace" | "revoked";
+      api_calls: number;
+      vibe_tokens: number;
+      avg_latency_ms: number | null;
+      share_pct: number;
+    }>;
+    highlights: {
+      peak_hour: string;
+      most_active_token: string;
+      busiest_day: string;
+    };
+  }>(response);
+
+  return {
+    range: payload.range,
+    windowDays: payload.window_days,
+    dateRangeLabel: payload.date_range_label,
+    summary: {
+      apiCalls: {
+        value: payload.summary.api_calls.value,
+        changePct: payload.summary.api_calls.change_pct,
+      },
+      tokensConsumed: {
+        value: payload.summary.tokens_consumed.value,
+        changePct: payload.summary.tokens_consumed.change_pct,
+      },
+      avgResponseTimeMs: {
+        value: payload.summary.avg_response_time_ms.value,
+        changePct: payload.summary.avg_response_time_ms.change_pct,
+      },
+      errorRatePct: {
+        value: payload.summary.error_rate_pct.value,
+        changePct: payload.summary.error_rate_pct.change_pct,
+      },
+    },
+    trend: payload.trend.map((entry) => ({
+      bucketStart: entry.bucket_start,
+      dayLabel: entry.day_label,
+      apiCalls: entry.api_calls,
+      vibeTokens: entry.vibe_tokens,
+    })),
+    toolDistribution: payload.tool_distribution.map((entry) => ({
+      tool: entry.tool,
+      apiCalls: entry.api_calls,
+      sharePct: entry.share_pct,
+    })),
+    tokenBreakdown: payload.token_breakdown.map((entry) => ({
+      tokenId: entry.token_id,
+      prefix: entry.prefix,
+      status: entry.status,
+      apiCalls: entry.api_calls,
+      vibeTokens: entry.vibe_tokens,
+      avgLatencyMs: entry.avg_latency_ms,
+      sharePct: entry.share_pct,
+    })),
+    highlights: {
+      peakHour: payload.highlights.peak_hour,
+      mostActiveToken: payload.highlights.most_active_token,
+      busiestDay: payload.highlights.busiest_day,
+    },
+  };
+}
+
+export async function getProjectGraph(
+  user: ControlPlaneUser,
+  projectId: string,
+  input?: {
+    query?: string | null;
+    entityTypes?: string[];
+    lastDays?: number | null;
+    maxNodes?: number;
+    maxEdges?: number;
+    maxFacts?: number;
+  },
+): Promise<ProjectGraphPayload> {
+  const params = new URLSearchParams();
+  if (input?.query && input.query.trim()) {
+    params.set("q", input.query.trim());
+  }
+  if (input?.entityTypes && input.entityTypes.length > 0) {
+    params.set("entity_types", input.entityTypes.join(","));
+  }
+  if (typeof input?.lastDays === "number" && input.lastDays > 0) {
+    params.set("last_days", String(input.lastDays));
+  }
+  if (typeof input?.maxNodes === "number") {
+    params.set("max_nodes", String(input.maxNodes));
+  }
+  if (typeof input?.maxEdges === "number") {
+    params.set("max_edges", String(input.maxEdges));
+  }
+  if (typeof input?.maxFacts === "number") {
+    params.set("max_facts", String(input.maxFacts));
+  }
+  const query = params.toString();
+  const response = await fetch(
+    `${serverEnv.controlPlaneApiBaseUrl}/api/control-plane/projects/${projectId}/graph${query ? `?${query}` : ""}`,
+    {
+      cache: "no-store",
+      headers: controlPlaneHeaders(user),
+    },
+  );
+  const payload = await parseJson<{
+    graph: {
+      generated_at: string;
+      entity_count: number;
+      relationship_count: number;
+      truncated: boolean;
+      nodes: Array<{
+        entity_id: string;
+        type: string;
+        name: string;
+        fact_count: number;
+        episode_count: number;
+        reference_time: string | null;
+        hover_text: Array<{ text: string; reference_time: string | null }>;
+      }>;
+      edges: Array<{
+        edge_id: string;
+        type: string;
+        source_entity_id: string;
+        target_entity_id: string;
+        weight: number;
+        episode_count: number;
+        label: string;
+      }>;
+    };
+  }>(response);
+
+  return {
+    generatedAt: payload.graph.generated_at,
+    entityCount: payload.graph.entity_count,
+    relationshipCount: payload.graph.relationship_count,
+    truncated: payload.graph.truncated,
+    nodes: payload.graph.nodes.map((node) => ({
+      entityId: node.entity_id,
+      type: node.type,
+      name: node.name,
+      factCount: node.fact_count,
+      episodeCount: node.episode_count,
+      referenceTime: node.reference_time,
+      hoverText: node.hover_text.map((item) => ({
+        text: item.text,
+        referenceTime: item.reference_time,
+      })),
+    })),
+    edges: payload.graph.edges.map((edge) => ({
+      edgeId: edge.edge_id,
+      type: edge.type,
+      sourceEntityId: edge.source_entity_id,
+      targetEntityId: edge.target_entity_id,
+      weight: edge.weight,
+      episodeCount: edge.episode_count,
+      label: edge.label,
+    })),
+  };
+}
+
+export async function getProjectGraphEntityDetail(
+  user: ControlPlaneUser,
+  projectId: string,
+  entityId: string,
+  input?: {
+    factLimit?: number;
+    episodeLimit?: number;
+    maxFactsScan?: number;
+  },
+): Promise<ProjectGraphEntityDetail> {
+  const params = new URLSearchParams();
+  if (typeof input?.factLimit === "number") {
+    params.set("fact_limit", String(input.factLimit));
+  }
+  if (typeof input?.episodeLimit === "number") {
+    params.set("episode_limit", String(input.episodeLimit));
+  }
+  if (typeof input?.maxFactsScan === "number") {
+    params.set("max_facts_scan", String(input.maxFactsScan));
+  }
+  const query = params.toString();
+  const encodedEntityId = encodeURIComponent(entityId);
+  const response = await fetch(
+    `${serverEnv.controlPlaneApiBaseUrl}/api/control-plane/projects/${projectId}/graph/entities/${encodedEntityId}${query ? `?${query}` : ""}`,
+    {
+      cache: "no-store",
+      headers: controlPlaneHeaders(user),
+    },
+  );
+  const payload = await parseJson<{
+    entity: {
+      entity_id: string;
+      type: string;
+      name: string;
+      fact_count: number;
+      episode_count: number;
+    };
+    facts: Array<{
+      fact_id: string;
+      text: string;
+      valid_at: string | null;
+      invalid_at: string | null;
+      ingested_at: string | null;
+      provenance: {
+        episode_ids: string[];
+        reference_time: string | null;
+        ingested_at: string | null;
+      };
+    }>;
+    provenance: Array<{
+      episode_id: string;
+      reference_time: string | null;
+      ingested_at: string | null;
+      summary: string | null;
+      metadata: Record<string, unknown>;
+    }>;
+  }>(response);
+
+  return {
+    entity: {
+      entityId: payload.entity.entity_id,
+      type: payload.entity.type,
+      name: payload.entity.name,
+      factCount: payload.entity.fact_count,
+      episodeCount: payload.entity.episode_count,
+    },
+    facts: payload.facts.map((fact) => ({
+      factId: fact.fact_id,
+      text: fact.text,
+      validAt: fact.valid_at,
+      invalidAt: fact.invalid_at,
+      ingestedAt: fact.ingested_at,
+      provenance: {
+        episodeIds: fact.provenance.episode_ids,
+        referenceTime: fact.provenance.reference_time,
+        ingestedAt: fact.provenance.ingested_at,
+      },
+    })),
+    provenance: payload.provenance.map((episode) => ({
+      episodeId: episode.episode_id,
+      referenceTime: episode.reference_time,
+      ingestedAt: episode.ingested_at,
+      summary: episode.summary,
+      metadata: episode.metadata,
+    })),
+  };
+}
+
+export async function getProjectTimeline(
+  user: ControlPlaneUser,
+  projectId: string,
+  input?: {
+    limit?: number;
+    offset?: number;
+    fromTime?: string | null;
+    toTime?: string | null;
+  },
+): Promise<ProjectTimelinePayload> {
+  const params = new URLSearchParams();
+  params.set("limit", String(input?.limit ?? 50));
+  params.set("offset", String(input?.offset ?? 0));
+  if (input?.fromTime) {
+    params.set("from_time", input.fromTime);
+  }
+  if (input?.toTime) {
+    params.set("to_time", input.toTime);
+  }
+  const response = await fetch(
+    `${serverEnv.controlPlaneApiBaseUrl}/api/control-plane/projects/${projectId}/timeline?${params.toString()}`,
+    {
+      cache: "no-store",
+      headers: controlPlaneHeaders(user),
+    },
+  );
+  const payload = await parseJson<{
+    timeline: {
+      rows: Array<{
+        episode_id: string;
+        reference_time: string | null;
+        ingested_at: string | null;
+        summary: string | null;
+        metadata: Record<string, unknown>;
+      }>;
+      offset: number;
+      limit: number;
+      has_more: boolean;
+      next_offset: number | null;
+    };
+  }>(response);
+
+  return {
+    rows: payload.timeline.rows.map((row) => ({
+      episodeId: row.episode_id,
+      referenceTime: row.reference_time,
+      ingestedAt: row.ingested_at,
+      summary: row.summary,
+      metadata: row.metadata,
+    })),
+    offset: payload.timeline.offset,
+    limit: payload.timeline.limit,
+    hasMore: payload.timeline.has_more,
+    nextOffset: payload.timeline.next_offset,
+  };
+}
+
 export async function getProjectBillingOverview(
   user: ControlPlaneUser,
   projectId: string,
@@ -368,6 +780,29 @@ export async function getProjectBillingOverview(
     reset_at: string;
     last_7d_vibe_tokens: number;
     projected_month_vibe_tokens: number;
+    plan_monthly_price_cents: number;
+    renews_at: string;
+    invoices: Array<{
+      invoice_id: string;
+      invoice_date: string;
+      description: string;
+      amount_cents: number;
+      currency: string;
+      status: ProjectBillingOverview["invoices"][number]["status"];
+      pdf_url: string | null;
+    }>;
+    payment_method: {
+      payment_method_id: string;
+      brand: string;
+      last4: string;
+      exp_month: number;
+      exp_year: number;
+      is_default: boolean;
+    } | null;
+    billing_contact: {
+      email: string | null;
+      tax_id: string | null;
+    };
   }>(response);
 
   return {
@@ -381,13 +816,38 @@ export async function getProjectBillingOverview(
     resetAt: payload.reset_at,
     last7dVibeTokens: payload.last_7d_vibe_tokens,
     projectedMonthVibeTokens: payload.projected_month_vibe_tokens,
+    planMonthlyPriceCents: payload.plan_monthly_price_cents,
+    renewsAt: payload.renews_at,
+    invoices: payload.invoices.map((invoice) => ({
+      invoiceId: invoice.invoice_id,
+      invoiceDate: invoice.invoice_date,
+      description: invoice.description,
+      amountCents: invoice.amount_cents,
+      currency: invoice.currency,
+      status: invoice.status,
+      pdfUrl: invoice.pdf_url,
+    })),
+    paymentMethod: payload.payment_method
+      ? {
+          paymentMethodId: payload.payment_method.payment_method_id,
+          brand: payload.payment_method.brand,
+          last4: payload.payment_method.last4,
+          expMonth: payload.payment_method.exp_month,
+          expYear: payload.payment_method.exp_year,
+          isDefault: payload.payment_method.is_default,
+        }
+      : null,
+    billingContact: {
+      email: payload.billing_contact.email,
+      taxId: payload.billing_contact.tax_id,
+    },
   };
 }
 
 export async function getProjectApiLogs(
   user: ControlPlaneUser,
   projectId: string,
-  input?: { limit?: number; cursor?: number | null },
+  input?: { limit?: number; cursor?: number | string | null },
 ): Promise<ProjectApiLogsPage> {
   const limit = input?.limit ?? 50;
   const cursor = input?.cursor ?? null;
@@ -414,6 +874,7 @@ export async function getProjectApiLogs(
       args_hash: string | null;
       status: string;
       created_at: string | null;
+      latency_ms?: number | null;
     }>;
     next_cursor: number | null;
   }>(response);
@@ -429,8 +890,124 @@ export async function getProjectApiLogs(
       argsHash: log.args_hash,
       status: log.status,
       createdAt: log.created_at,
+      latencyMs: log.latency_ms ?? null,
     })),
     nextCursor: payload.next_cursor,
+  };
+}
+
+export async function getProjectApiLogsAnalytics(
+  user: ControlPlaneUser,
+  projectId: string,
+  input?: {
+    range?: ApiLogsRange;
+    statusFilter?: ApiLogsStatusFilter;
+    tool?: string | null;
+    query?: string | null;
+    limit?: number;
+    cursor?: string | null;
+  },
+): Promise<ProjectApiLogsAnalyticsPayload> {
+  const params = new URLSearchParams();
+  params.set("range", input?.range ?? "30d");
+  params.set("status_filter", input?.statusFilter ?? "all");
+  params.set("limit", String(input?.limit ?? 5));
+  if (input?.tool && input.tool.trim()) {
+    params.set("tool", input.tool.trim());
+  }
+  if (input?.query && input.query.trim()) {
+    params.set("q", input.query.trim());
+  }
+  if (input?.cursor) {
+    params.set("cursor", input.cursor);
+  }
+  const response = await fetch(
+    `${serverEnv.controlPlaneApiBaseUrl}/api/control-plane/projects/${projectId}/api-logs/analytics?${params.toString()}`,
+    {
+      cache: "no-store",
+      headers: controlPlaneHeaders(user),
+    },
+  );
+  const payload = await parseJson<{
+    range: ApiLogsRange;
+    filters: {
+      status_filter: ApiLogsStatusFilter;
+      tool: string | null;
+      q: string | null;
+    };
+    summary: {
+      total_requests: { value: number | null; change_pct: number | null };
+      success_rate_pct: { value: number | null; change_pct: number | null };
+      error_count: { value: number | null; change_pct: number | null };
+      p95_latency_ms: { value: number | null; change_pct: number | null };
+    };
+    table: {
+      rows: Array<{
+        id: number;
+        time: string | null;
+        tool: string | null;
+        status: string | null;
+        latency_ms: number | null;
+        token_prefix: string | null;
+        request_id: string | null;
+        action: string | null;
+      }>;
+      tool_options: string[];
+      pagination: {
+        total_rows: number;
+        showing_from: number;
+        showing_to: number;
+        next_cursor: string | null;
+        prev_cursor: string | null;
+      };
+    };
+  }>(response);
+
+  return {
+    range: payload.range,
+    filters: {
+      statusFilter: payload.filters.status_filter,
+      tool: payload.filters.tool,
+      query: payload.filters.q,
+    },
+    summary: {
+      totalRequests: {
+        value: payload.summary.total_requests.value,
+        changePct: payload.summary.total_requests.change_pct,
+      },
+      successRatePct: {
+        value: payload.summary.success_rate_pct.value,
+        changePct: payload.summary.success_rate_pct.change_pct,
+      },
+      errorCount: {
+        value: payload.summary.error_count.value,
+        changePct: payload.summary.error_count.change_pct,
+      },
+      p95LatencyMs: {
+        value: payload.summary.p95_latency_ms.value,
+        changePct: payload.summary.p95_latency_ms.change_pct,
+      },
+    },
+    table: {
+      rows: payload.table.rows.map((row) => ({
+        id: row.id,
+        time: row.time,
+        tool: row.tool,
+        status: row.status,
+        latencyMs: row.latency_ms,
+        tokenPrefix: row.token_prefix,
+        requestId: row.request_id,
+        action: row.action,
+      })),
+      toolOptions: payload.table.tool_options,
+      pagination: {
+        totalRows: payload.table.pagination.total_rows,
+        showingFrom: payload.table.pagination.showing_from,
+        showingTo: payload.table.pagination.showing_to,
+        nextCursor: payload.table.pagination.next_cursor,
+        prevCursor: payload.table.pagination.prev_cursor,
+      },
+    },
   };
 }
 

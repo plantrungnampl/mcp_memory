@@ -9,7 +9,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from viberecall_mcp.config import get_settings
-from viberecall_mcp.neo4j_routing import project_db_name
+from viberecall_mcp.graph_routing import project_graph_name
 from viberecall_mcp.repositories.tokens import get_token_by_hash
 
 
@@ -83,5 +83,5 @@ async def authenticate_bearer_token(
         project_id=token["project_id"],
         scopes=list(token["scopes"] or []),
         plan=token["plan"],
-        db_name=project_db_name(project_id),
+        db_name=project_graph_name(project_id),
     )

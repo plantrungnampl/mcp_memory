@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Activity, BarChart3, Database, FolderKanban, TerminalSquare } from "lucide-react";
-import type { ComponentType } from "react";
+import { Activity, BarChart3, FolderKanban, Orbit, TerminalSquare } from "lucide-react";
+import type { ComponentType, MouseEvent } from "react";
 import { useEffect, useMemo } from "react";
 
+import { PROJECT_STORAGE_KEY, resolveSelectedProjectId } from "@/components/projects/project-selection";
 import type { ProjectSummary } from "@/lib/api/types";
 
 type ProjectsWorkspaceNavProps = {
@@ -14,13 +15,12 @@ type ProjectsWorkspaceNavProps = {
 };
 
 type NavItem = {
+  id: "projects" | "tokens" | "graphPlayground" | "usage" | "apiLogs";
   href: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
   disabled?: boolean;
 };
-
-const PROJECT_STORAGE_KEY = "viberecall:lastProjectId";
 
 function itemClassName(active: boolean, disabled?: boolean): string {
   if (disabled) {
@@ -32,26 +32,17 @@ function itemClassName(active: boolean, disabled?: boolean): string {
   return "flex items-center gap-3 rounded-md px-3 py-2 text-slate-300 hover:bg-[#7a2dbe]/10";
 }
 
-function extractPathProjectId(pathname: string): string | null {
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments.length < 2 || segments[0] !== "projects") {
-    return null;
-  }
-  return segments[1] ?? null;
-}
-
 export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWorkspaceNavProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const isDirectoryPath = pathname === "/projects";
-  const pathProjectId = extractPathProjectId(pathname);
-  const queryProjectId = searchParams.get("project");
-
   const knownProjectIds = useMemo(() => new Set(projects.map((project) => project.id)), [projects]);
-
-  const selectedProjectId =
-    isDirectoryPath ? (queryProjectId && knownProjectIds.has(queryProjectId) ? queryProjectId : null) : pathProjectId;
+  const selectedProjectId = resolveSelectedProjectId({
+    pathname,
+    searchParams,
+    projects,
+  });
 
   const navProjectId = selectedProjectId ?? activeProjectId ?? projects[0]?.id ?? null;
 
@@ -72,12 +63,12 @@ export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWork
     }
     const params = new URLSearchParams(searchParams.toString());
     params.set("project", storedProjectId);
-    router.replace(`/projects?${params.toString()}`, { scroll: false });
+    const nextQuery = params.toString();
+    window.history.replaceState(null, "", nextQuery ? `/projects?${nextQuery}` : "/projects");
   }, [
     isDirectoryPath,
     knownProjectIds,
     projects.length,
-    router,
     searchParams,
     selectedProjectId,
   ]);
@@ -92,7 +83,8 @@ export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWork
     if (isDirectoryPath) {
       const params = new URLSearchParams(searchParams.toString());
       params.set("project", nextProjectId);
-      router.replace(`/projects?${params.toString()}`, { scroll: false });
+      const nextQuery = params.toString();
+      window.history.replaceState(null, "", nextQuery ? `/projects?${nextQuery}` : "/projects");
       return;
     }
 
@@ -108,29 +100,34 @@ export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWork
 
   const navItems: NavItem[] = [
     {
+      id: "projects",
       href: "/projects",
       label: "Projects",
       icon: FolderKanban,
     },
     {
+      id: "tokens",
       href: navProjectId ? `/projects/${navProjectId}/tokens` : "/projects",
       label: "VibeTokens",
       icon: BarChart3,
       disabled: !navProjectId,
     },
     {
+      id: "graphPlayground",
+      href: navProjectId ? `/projects/${navProjectId}/graphs/playground` : "/projects",
+      label: "Graphs / Playground",
+      icon: Orbit,
+      disabled: !navProjectId,
+    },
+    {
+      id: "usage",
       href: navProjectId ? `/projects/${navProjectId}/usage` : "/projects",
       label: "Usage Analytics",
       icon: Activity,
       disabled: !navProjectId,
     },
     {
-      href: navProjectId ? `/projects/${navProjectId}/billing` : "/projects",
-      label: "Billing",
-      icon: Database,
-      disabled: !navProjectId,
-    },
-    {
+      id: "apiLogs",
       href: navProjectId ? `/projects/${navProjectId}/api-logs` : "/projects",
       label: "API Logs",
       icon: TerminalSquare,
@@ -166,18 +163,23 @@ export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWork
       </div>
 
       {navItems.map((item) => {
-        const isActive =
-          item.href === "/projects"
-            ? pathname === "/projects"
-            : pathname === item.href || pathname.startsWith(`${item.href}/`);
+        const isActive = (() => {
+          if (item.id === "projects") {
+            return pathname === "/projects";
+          }
+          if (item.disabled) {
+            return false;
+          }
+          return pathname === item.href || pathname.startsWith(`${item.href}/`);
+        })();
         const Icon = item.icon;
         return (
           <Link
             aria-disabled={item.disabled}
             className={itemClassName(isActive, item.disabled)}
             href={item.href}
-            key={item.href}
-            onClick={item.disabled ? (event) => event.preventDefault() : undefined}
+            key={item.id}
+            onClick={item.disabled ? (event: MouseEvent<HTMLAnchorElement>) => event.preventDefault() : undefined}
           >
             <Icon className="size-4" />
             {item.label}

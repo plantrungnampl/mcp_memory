@@ -6,11 +6,17 @@ import json
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from viberecall_mcp import app as app_module
 from viberecall_mcp import control_plane
 from viberecall_mcp.app import create_app
-from viberecall_mcp.control_plane_auth import AuthenticatedControlPlaneUser
+from viberecall_mcp.config import get_settings
+from viberecall_mcp.control_plane_assertion import (
+    ControlPlaneAssertionClaims as AuthenticatedControlPlaneUser,
+    create_control_plane_assertion,
+)
 from viberecall_mcp.db import get_db_session
 
 
@@ -25,9 +31,11 @@ async def override_session() -> AsyncIterator[DummySession]:
 
 def auth_headers() -> dict[str, str]:
     return {
-        "X-Control-Plane-Secret": "dev-control-plane-secret",
-        "X-Control-Plane-User-Id": "user_123",
-        "X-Control-Plane-User-Email": "dev@example.com",
+        "X-Control-Plane-Assertion": create_control_plane_assertion(
+            secret=get_settings().control_plane_internal_secret,
+            user_id="user_123",
+            user_email="dev@example.com",
+        ),
     }
 
 
@@ -54,7 +62,6 @@ def test_list_projects_returns_owner_scoped_projects(monkeypatch) -> None:
 
     app = create_app()
     app.dependency_overrides[get_db_session] = override_session
-    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
     monkeypatch.setattr(control_plane, "list_projects_for_owner", fake_list_projects_for_owner)
     monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
 
@@ -113,7 +120,6 @@ def test_create_project_returns_plaintext_token(monkeypatch) -> None:
 
     app = create_app()
     app.dependency_overrides[get_db_session] = override_session
-    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
     monkeypatch.setattr(control_plane, "create_project", fake_create_project)
     monkeypatch.setattr(control_plane, "create_token", fake_create_token)
     monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
@@ -187,7 +193,6 @@ def test_rotate_token_sets_grace_and_returns_new_plaintext(monkeypatch) -> None:
 
     app = create_app()
     app.dependency_overrides[get_db_session] = override_session
-    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
     monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
     monkeypatch.setattr(control_plane, "get_token_for_project", fake_get_token_for_project)
     monkeypatch.setattr(control_plane, "set_token_revoked_at", fake_set_token_revoked_at)
@@ -212,6 +217,75 @@ def test_control_plane_requires_internal_secret() -> None:
     with TestClient(app) as client:
         response = client.get("/api/control-plane/projects")
     assert response.status_code == 401
+
+
+def test_control_plane_echoes_request_id_on_success(monkeypatch) -> None:
+    async def fake_list_projects_for_owner(_session, *, owner_id: str, include_unowned: bool):
+        assert owner_id == "user_123"
+        assert include_unowned is True
+        return []
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    monkeypatch.setattr(control_plane, "list_projects_for_owner", fake_list_projects_for_owner)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects",
+            headers={
+                **auth_headers(),
+                "X-Request-Id": "req_trace_success",
+            },
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.headers["X-Request-Id"] == "req_trace_success"
+
+
+def test_control_plane_generates_request_id_for_unauthenticated_failure() -> None:
+    app = create_app()
+    with TestClient(app) as client:
+        response = client.get("/api/control-plane/projects")
+
+    assert response.status_code == 401
+    assert response.headers["X-Request-Id"].startswith("req_")
+
+
+def test_healthz_returns_dependency_probe_payload(monkeypatch) -> None:
+    async def fake_probe() -> dict:
+        return {
+            "status": "degraded",
+            "runtime": {
+                "memory_backend": "falkordb",
+                "kv_backend": "local",
+                "queue_backend": "eager",
+                "falkordb_target": "localhost:6380",
+            },
+            "checks": {
+                "falkordb": {
+                    "status": "error",
+                    "detail": "Connection refused",
+                }
+            },
+        }
+
+    monkeypatch.setattr(app_module, "probe_runtime_dependencies", fake_probe)
+    app = app_module.create_app()
+
+    with TestClient(app) as client:
+        response = client.get("/healthz")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["service"] == "viberecall-mcp"
+    assert body["runtime"]["memory_backend"] == "falkordb"
+    assert body["checks"]["falkordb"]["status"] == "error"
 
 
 def test_token_status_grace_window() -> None:
@@ -259,6 +333,14 @@ def test_project_usage_returns_rollup(monkeypatch) -> None:
     assert response.json()["usage"]["vibe_tokens"] == 33
 
 
+def test_default_scopes_for_all_plans_are_full_access() -> None:
+    expected = ["memory:read", "memory:write", "facts:read", "facts:write", "timeline:read"]
+
+    assert control_plane._default_scopes_for_plan("free") == expected
+    assert control_plane._default_scopes_for_plan("pro") == expected
+    assert control_plane._default_scopes_for_plan("team") == expected
+
+
 def test_project_usage_series_returns_buckets(monkeypatch) -> None:
     async def fake_ensure_project_access(_session, **_kwargs):
         return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
@@ -301,6 +383,438 @@ def test_project_usage_series_returns_buckets(monkeypatch) -> None:
     assert body["series"][0]["vibe_tokens"] == 7
 
 
+def test_project_usage_analytics_returns_payload(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_get_usage_analytics(_session, *, project_id: str, range_key: str):
+        assert project_id == "proj_1"
+        assert range_key == "7d"
+        return {
+            "range": "7d",
+            "window_days": 7,
+            "date_range_label": "Feb 23 – Mar 1, 2026",
+            "summary": {
+                "api_calls": {"value": 342, "change_pct": 18.3},
+                "tokens_consumed": {"value": 1724, "change_pct": 11.9},
+                "avg_response_time_ms": {"value": None, "change_pct": None},
+                "error_rate_pct": {"value": 0.3, "change_pct": -0.1},
+            },
+            "trend": [],
+            "tool_distribution": [],
+            "token_breakdown": [],
+            "highlights": {
+                "peak_hour": "2pm – 3pm",
+                "most_active_token": "vr_sk_7x9k...",
+                "busiest_day": "Thursday",
+            },
+        }
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "get_usage_analytics", fake_get_usage_analytics)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/usage/analytics?range=7d",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["range"] == "7d"
+    assert body["summary"]["api_calls"]["value"] == 342
+    assert body["highlights"]["busiest_day"] == "Thursday"
+
+
+def test_project_graph_returns_nodes_and_edges(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_ensure_graph_dependencies_ready() -> None:
+        return None
+
+    async def fake_collect_project_facts(*, project_id: str, max_rows: int):
+        assert project_id == "proj_1"
+        assert max_rows == 5000
+        return [
+            {
+                "id": "fact_1",
+                "text": "Core parser failed in module A and ticket T-19 was filed.",
+                "valid_at": "2026-03-01T10:00:00Z",
+                "invalid_at": None,
+                "ingested_at": "2026-03-01T10:01:00Z",
+                "entities": [
+                    {"id": "ent_file_a", "type": "File", "name": "src/module-a.ts"},
+                    {"id": "ent_ticket", "type": "Event", "name": "T-19"},
+                ],
+                "provenance": {
+                    "episode_ids": ["ep_1"],
+                    "reference_time": "2026-03-01T10:00:00Z",
+                    "ingested_at": "2026-03-01T10:01:00Z",
+                },
+            },
+            {
+                "id": "fact_2",
+                "text": "Decision was made to rollback module A.",
+                "valid_at": "2026-03-01T11:00:00Z",
+                "invalid_at": None,
+                "ingested_at": "2026-03-01T11:02:00Z",
+                "entities": [
+                    {"id": "ent_file_a", "type": "File", "name": "src/module-a.ts"},
+                    {"id": "ent_decision", "type": "Decision", "name": "Rollback"},
+                ],
+                "provenance": {
+                    "episode_ids": ["ep_2"],
+                    "reference_time": "2026-03-01T11:00:00Z",
+                    "ingested_at": "2026-03-01T11:02:00Z",
+                },
+            },
+        ]
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(
+        control_plane,
+        "_ensure_graph_dependencies_ready",
+        fake_ensure_graph_dependencies_ready,
+    )
+    monkeypatch.setattr(control_plane, "_collect_project_facts", fake_collect_project_facts)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/graph",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()["graph"]
+    assert body["entity_count"] == 3
+    assert body["relationship_count"] == 2
+    assert any(node["entity_id"] == "ent_file_a" and node["fact_count"] == 2 for node in body["nodes"])
+    assert any(edge["source_entity_id"] == "ent_decision" or edge["target_entity_id"] == "ent_decision" for edge in body["edges"])
+
+
+def test_project_graph_entity_detail_returns_facts_and_provenance(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_ensure_graph_dependencies_ready() -> None:
+        return None
+
+    async def fake_collect_project_facts(*, project_id: str, max_rows: int):
+        assert project_id == "proj_1"
+        assert max_rows == 5000
+        return [
+            {
+                "id": "fact_1",
+                "text": "Parser issue in src/module-a.ts",
+                "valid_at": "2026-03-01T10:00:00Z",
+                "invalid_at": None,
+                "ingested_at": "2026-03-01T10:01:00Z",
+                "entities": [
+                    {"id": "ent_file_a", "type": "File", "name": "src/module-a.ts"},
+                    {"id": "ent_ticket", "type": "Event", "name": "T-19"},
+                ],
+                "provenance": {
+                    "episode_ids": ["ep_1"],
+                    "reference_time": "2026-03-01T10:00:00Z",
+                    "ingested_at": "2026-03-01T10:01:00Z",
+                },
+            }
+        ]
+
+    async def fake_collect_timeline_episodes_for_ids(_session, **_kwargs):
+        return [
+            {
+                "episode_id": "ep_1",
+                "reference_time": "2026-03-01T10:00:00Z",
+                "ingested_at": "2026-03-01T10:01:00Z",
+                "summary": "Issue detected",
+                "metadata": {"tags": ["incident"]},
+            }
+        ]
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(
+        control_plane,
+        "_ensure_graph_dependencies_ready",
+        fake_ensure_graph_dependencies_ready,
+    )
+    monkeypatch.setattr(control_plane, "_collect_project_facts", fake_collect_project_facts)
+    monkeypatch.setattr(
+        control_plane,
+        "_collect_timeline_episodes_for_ids",
+        fake_collect_timeline_episodes_for_ids,
+    )
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/graph/entities/ent_file_a",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["entity"]["entity_id"] == "ent_file_a"
+    assert body["entity"]["type"] == "File"
+    assert len(body["facts"]) == 1
+    assert body["facts"][0]["fact_id"] == "fact_1"
+    assert len(body["provenance"]) == 1
+    assert body["provenance"][0]["episode_id"] == "ep_1"
+
+
+def test_project_graph_returns_503_when_dependencies_unavailable(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_ensure_graph_dependencies_ready() -> None:
+        raise HTTPException(
+            status_code=503,
+            detail="Graph dependency check failed for memory backend 'graphiti': Connection refused",
+        )
+
+    calls = {"collect": 0}
+
+    async def fake_collect_project_facts_for_graph(*, project_id: str, max_rows: int):
+        calls["collect"] += 1
+        return []
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(
+        control_plane,
+        "_ensure_graph_dependencies_ready",
+        fake_ensure_graph_dependencies_ready,
+    )
+    monkeypatch.setattr(
+        control_plane,
+        "_collect_project_facts_for_graph",
+        fake_collect_project_facts_for_graph,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/graph",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 503
+    assert "Graph dependency check failed" in response.json()["detail"]
+    assert calls["collect"] == 0
+
+
+def test_project_graph_returns_503_when_fact_collection_detects_dependency_failure(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_ensure_graph_dependencies_ready() -> None:
+        return None
+
+    async def fake_collect_project_facts_for_graph(*, project_id: str, max_rows: int):
+        raise HTTPException(
+            status_code=503,
+            detail="Graph dependency check failed for memory backend 'graphiti': Error 111 connecting to localhost:6380. Connection refused.",
+        )
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(
+        control_plane,
+        "_ensure_graph_dependencies_ready",
+        fake_ensure_graph_dependencies_ready,
+    )
+    monkeypatch.setattr(
+        control_plane,
+        "_collect_project_facts_for_graph",
+        fake_collect_project_facts_for_graph,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/graph",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 503
+    assert "localhost:6380" in response.json()["detail"]
+
+
+def test_project_graph_entity_detail_returns_404_for_unknown_entity(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_ensure_graph_dependencies_ready() -> None:
+        return None
+
+    async def fake_collect_project_facts_for_graph(*, project_id: str, max_rows: int):
+        return [
+            {
+                "id": "fact_1",
+                "text": "Parser issue in src/module-a.ts",
+                "valid_at": "2026-03-01T10:00:00Z",
+                "invalid_at": None,
+                "ingested_at": "2026-03-01T10:01:00Z",
+                "entities": [
+                    {"id": "ent_file_a", "type": "File", "name": "src/module-a.ts"},
+                ],
+                "provenance": {
+                    "episode_ids": ["ep_1"],
+                    "reference_time": "2026-03-01T10:00:00Z",
+                    "ingested_at": "2026-03-01T10:01:00Z",
+                },
+            }
+        ]
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(
+        control_plane,
+        "_ensure_graph_dependencies_ready",
+        fake_ensure_graph_dependencies_ready,
+    )
+    monkeypatch.setattr(
+        control_plane,
+        "_collect_project_facts_for_graph",
+        fake_collect_project_facts_for_graph,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/graph/entities/ent_missing",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Entity not found"
+
+
+def test_project_graph_entity_detail_validates_limits_before_dependency_check(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_ensure_graph_dependencies_ready() -> None:
+        raise AssertionError("dependency check should not run for invalid input")
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(
+        control_plane,
+        "_ensure_graph_dependencies_ready",
+        fake_ensure_graph_dependencies_ready,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/graph/entities/ent_file_a?fact_limit=0",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert response.json()["detail"] == "fact_limit must be between 1 and 500"
+
+
+def test_project_timeline_returns_paginated_rows(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_list_timeline_episodes(
+        _session,
+        *,
+        project_id: str,
+        from_time: str | None,
+        to_time: str | None,
+        limit: int,
+        offset: int,
+    ):
+        assert project_id == "proj_1"
+        assert from_time is None
+        assert to_time is None
+        assert limit == 3
+        assert offset == 0
+        return [
+            {
+                "episode_id": "ep_3",
+                "reference_time": "2026-03-03T10:00:00Z",
+                "ingested_at": "2026-03-03T10:00:01Z",
+                "summary": "third",
+                "metadata": {},
+            },
+            {
+                "episode_id": "ep_2",
+                "reference_time": "2026-03-02T10:00:00Z",
+                "ingested_at": "2026-03-02T10:00:01Z",
+                "summary": "second",
+                "metadata": {},
+            },
+            {
+                "episode_id": "ep_1",
+                "reference_time": "2026-03-01T10:00:00Z",
+                "ingested_at": "2026-03-01T10:00:01Z",
+                "summary": "first",
+                "metadata": {},
+            },
+        ]
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "list_timeline_episodes", fake_list_timeline_episodes)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/timeline?limit=2&offset=0",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()["timeline"]
+    assert len(body["rows"]) == 2
+    assert body["rows"][0]["episode_id"] == "ep_3"
+    assert body["has_more"] is True
+    assert body["next_offset"] == 2
+
+
 def test_project_billing_overview_returns_metrics(monkeypatch) -> None:
     async def fake_ensure_project_access(_session, **_kwargs):
         return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
@@ -316,11 +830,23 @@ def test_project_billing_overview_returns_metrics(monkeypatch) -> None:
     async def fake_audit(*_args, **_kwargs):
         return None
 
+    async def fake_list_recent_invoices(_session, **_kwargs):
+        return []
+
+    async def fake_get_default_payment_method(_session, **_kwargs):
+        return None
+
+    async def fake_get_billing_contact(_session, **_kwargs):
+        return None
+
     app = create_app()
     app.dependency_overrides[get_db_session] = override_session
     app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
     monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
     monkeypatch.setattr(control_plane, "get_billing_usage_snapshot", fake_get_billing_usage_snapshot)
+    monkeypatch.setattr(control_plane, "list_recent_invoices", fake_list_recent_invoices)
+    monkeypatch.setattr(control_plane, "get_default_payment_method", fake_get_default_payment_method)
+    monkeypatch.setattr(control_plane, "get_billing_contact", fake_get_billing_contact)
     monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
 
     with TestClient(app) as client:
@@ -340,6 +866,88 @@ def test_project_billing_overview_returns_metrics(monkeypatch) -> None:
     assert body["monthly_quota_vibe_tokens"] == 5_000_000
     assert body["remaining_vibe_tokens"] == 4_998_800
     assert body["projected_month_vibe_tokens"] >= 1200
+    assert body["plan_monthly_price_cents"] == 4900
+    assert isinstance(body["renews_at"], str)
+    assert body["invoices"] == []
+    assert body["payment_method"] is None
+    assert body["billing_contact"] == {
+        "email": None,
+        "tax_id": None,
+    }
+
+
+def test_project_billing_overview_returns_billing_entities(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "team", "owner_id": "user_123"}
+
+    async def fake_get_billing_usage_snapshot(_session, *, project_id: str):
+        assert project_id == "proj_1"
+        return {
+            "current_month_vibe_tokens": 9800,
+            "current_month_events": 112,
+            "last_7d_vibe_tokens": 3150,
+        }
+
+    async def fake_list_recent_invoices(_session, **_kwargs):
+        return [
+            {
+                "invoice_id": "inv_2026_03",
+                "invoice_date": "2026-03-01T00:00:00Z",
+                "description": "Team Plan — Monthly",
+                "amount_cents": 19900,
+                "currency": "usd",
+                "status": "paid",
+                "pdf_url": "https://example.com/inv_2026_03.pdf",
+            }
+        ]
+
+    async def fake_get_default_payment_method(_session, **_kwargs):
+        return {
+            "payment_method_id": "pm_1",
+            "brand": "visa",
+            "last4": "4242",
+            "exp_month": 12,
+            "exp_year": 2027,
+            "is_default": True,
+        }
+
+    async def fake_get_billing_contact(_session, **_kwargs):
+        return {
+            "project_id": "proj_1",
+            "email": "billing@example.com",
+            "tax_id": "US-123456",
+        }
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "get_billing_usage_snapshot", fake_get_billing_usage_snapshot)
+    monkeypatch.setattr(control_plane, "list_recent_invoices", fake_list_recent_invoices)
+    monkeypatch.setattr(control_plane, "get_default_payment_method", fake_get_default_payment_method)
+    monkeypatch.setattr(control_plane, "get_billing_contact", fake_get_billing_contact)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/billing/overview",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["plan"] == "team"
+    assert body["plan_monthly_price_cents"] == 19_900
+    assert body["invoices"][0]["invoice_id"] == "inv_2026_03"
+    assert body["invoices"][0]["status"] == "paid"
+    assert body["payment_method"]["last4"] == "4242"
+    assert body["payment_method"]["is_default"] is True
+    assert body["billing_contact"]["email"] == "billing@example.com"
+    assert body["billing_contact"]["tax_id"] == "US-123456"
 
 
 def test_project_api_logs_returns_paginated_rows(monkeypatch) -> None:
@@ -352,10 +960,12 @@ def test_project_api_logs_returns_paginated_rows(monkeypatch) -> None:
         project_id: str,
         limit: int,
         cursor: int | None = None,
+        action_name: str | None = None,
     ):
         assert project_id == "proj_1"
         assert limit == 3
         assert cursor is None
+        assert action_name == "tools/call"
         return [
             {
                 "id": 200,
@@ -363,7 +973,7 @@ def test_project_api_logs_returns_paginated_rows(monkeypatch) -> None:
                 "project_id": "proj_1",
                 "token_id": "tok_1",
                 "tool_name": "viberecall_save",
-                "action": "worker/save",
+                "action": "tools/call",
                 "args_hash": "hash_1",
                 "status": "ok",
                 "created_at": "2026-03-01T10:00:00Z",
@@ -374,7 +984,7 @@ def test_project_api_logs_returns_paginated_rows(monkeypatch) -> None:
                 "project_id": "proj_1",
                 "token_id": "tok_1",
                 "tool_name": "viberecall_search",
-                "action": "worker/search",
+                "action": "tools/call",
                 "args_hash": "hash_2",
                 "status": "ok",
                 "created_at": "2026-03-01T09:59:00Z",
@@ -385,7 +995,7 @@ def test_project_api_logs_returns_paginated_rows(monkeypatch) -> None:
                 "project_id": "proj_1",
                 "token_id": "tok_1",
                 "tool_name": "viberecall_timeline",
-                "action": "worker/timeline",
+                "action": "tools/call",
                 "args_hash": "hash_3",
                 "status": "ok",
                 "created_at": "2026-03-01T09:58:00Z",
@@ -434,6 +1044,120 @@ def test_project_api_logs_rejects_invalid_limit(monkeypatch) -> None:
     app.dependency_overrides.clear()
     assert response.status_code == 422
     assert response.json()["detail"] == "limit must be between 1 and 200"
+
+
+def test_project_api_logs_analytics_returns_summary_and_table(monkeypatch) -> None:
+    summary_calls = {"count": 0}
+
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_get_api_logs_summary(_session, **_kwargs):
+        assert _kwargs["action_name"] == "tools/call"
+        summary_calls["count"] += 1
+        if summary_calls["count"] == 1:
+            return {
+                "total_requests": 120,
+                "success_rate_pct": 99.7,
+                "error_count": 4,
+                "p95_latency_ms": 287.3,
+            }
+        return {
+            "total_requests": 100,
+            "success_rate_pct": 98.0,
+            "error_count": 5,
+            "p95_latency_ms": 310.0,
+        }
+
+    async def fake_count_api_logs_rows(_session, **_kwargs):
+        assert _kwargs["action_name"] == "tools/call"
+        return 5
+
+    async def fake_list_api_logs_rows(_session, **_kwargs):
+        assert _kwargs["action_name"] == "tools/call"
+        return [
+            {
+                "id": 999,
+                "created_at": "2026-03-02T12:00:00Z",
+                "tool_name": "viberecall_save",
+                "status": "ok",
+                "latency_ms": 221.2,
+                "token_id": "tok_abc",
+                "token_prefix": "vr_mcp_sk_abc123",
+                "request_id": "req_1",
+                "action": "tools/call",
+            },
+            {
+                "id": 998,
+                "created_at": "2026-03-02T11:59:00Z",
+                "tool_name": "viberecall_search",
+                "status": "error",
+                "latency_ms": 450.0,
+                "token_id": "tok_xyz",
+                "token_prefix": "vr_mcp_sk_xyz789",
+                "request_id": "req_2",
+                "action": "tools/call",
+            },
+        ]
+
+    async def fake_list_api_logs_tools(_session, **_kwargs):
+        assert _kwargs["action_name"] == "tools/call"
+        return ["viberecall_save", "viberecall_search"]
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "get_api_logs_summary", fake_get_api_logs_summary)
+    monkeypatch.setattr(control_plane, "count_api_logs_rows", fake_count_api_logs_rows)
+    monkeypatch.setattr(control_plane, "list_api_logs_rows", fake_list_api_logs_rows)
+    monkeypatch.setattr(control_plane, "list_api_logs_tools", fake_list_api_logs_tools)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/api-logs/analytics?range=30d&limit=2",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["range"] == "30d"
+    assert body["summary"]["total_requests"]["value"] == 120
+    assert body["summary"]["success_rate_pct"]["value"] == 99.7
+    assert body["summary"]["error_count"]["value"] == 4
+    assert body["summary"]["p95_latency_ms"]["value"] == 287.3
+    assert body["table"]["pagination"]["showing_from"] == 1
+    assert body["table"]["pagination"]["showing_to"] == 2
+    assert body["table"]["pagination"]["total_rows"] == 5
+    assert body["table"]["pagination"]["prev_cursor"] is None
+    assert body["table"]["pagination"]["next_cursor"] is not None
+    assert body["table"]["rows"][0]["token_prefix"] == "vr_mcp_sk_abc123"
+    assert body["table"]["tool_options"] == ["viberecall_save", "viberecall_search"]
+
+
+def test_project_api_logs_analytics_rejects_invalid_cursor(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/api-logs/analytics?cursor=not-a-valid-cursor",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert response.json()["detail"].startswith("Invalid cursor:")
 
 
 def test_projects_overview_returns_owner_scoped_rows(monkeypatch) -> None:
@@ -864,6 +1588,9 @@ def test_create_export_enqueues_job_and_returns_record(monkeypatch) -> None:
     async def fake_audit(*_args, **_kwargs):
         return None
 
+    async def fake_ensure_export_dependencies_ready() -> None:
+        return None
+
     class FakeQueue:
         async def enqueue_export(self, **_kwargs):
             return "job_export_1"
@@ -876,6 +1603,11 @@ def test_create_export_enqueues_job_and_returns_record(monkeypatch) -> None:
     monkeypatch.setattr(control_plane, "set_export_job_id", fake_set_export_job_id)
     monkeypatch.setattr(control_plane, "get_export", fake_get_export)
     monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+    monkeypatch.setattr(
+        control_plane,
+        "_ensure_export_dependencies_ready",
+        fake_ensure_export_dependencies_ready,
+    )
     monkeypatch.setattr(control_plane, "get_task_queue", lambda: FakeQueue())
 
     with TestClient(app) as client:
@@ -890,6 +1622,65 @@ def test_create_export_enqueues_job_and_returns_record(monkeypatch) -> None:
     body = response.json()
     assert body["export"]["export_id"] == "exp_1"
     assert body["export"]["job_id"] == "job_export_1"
+
+
+def test_create_export_returns_503_when_dependencies_unavailable(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_ensure_export_dependencies_ready() -> None:
+        raise HTTPException(
+            status_code=503,
+            detail="Export dependency check failed for memory backend 'falkordb': Connection refused",
+        )
+
+    calls = {"create_export": 0, "enqueue_export": 0}
+
+    async def fake_create_export(_session, **_kwargs):
+        calls["create_export"] += 1
+        return {
+            "export_id": "exp_1",
+            "project_id": "proj_1",
+            "status": "pending",
+            "format": "json_v1",
+            "object_url": None,
+            "expires_at": None,
+            "error": None,
+            "requested_by": "user_123",
+            "requested_at": "2026-02-28T10:00:00Z",
+            "completed_at": None,
+            "job_id": None,
+        }
+
+    class FakeQueue:
+        async def enqueue_export(self, **_kwargs):
+            calls["enqueue_export"] += 1
+            return "job_export_1"
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(
+        control_plane,
+        "_ensure_export_dependencies_ready",
+        fake_ensure_export_dependencies_ready,
+    )
+    monkeypatch.setattr(control_plane, "create_export", fake_create_export)
+    monkeypatch.setattr(control_plane, "get_task_queue", lambda: FakeQueue())
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/control-plane/projects/proj_1/exports",
+            headers=auth_headers() | {"Idempotency-Key": "idem-export-2"},
+            json={"format": "json_v1"},
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 503
+    assert "Export dependency check failed" in response.json()["detail"]
+    assert calls["create_export"] == 0
+    assert calls["enqueue_export"] == 0
 
 
 def test_get_export_refreshes_signed_url_when_expired(monkeypatch) -> None:

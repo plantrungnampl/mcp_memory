@@ -6,6 +6,10 @@
     "dev": "pnpm -r --parallel dev",
     "dev:web": "pnpm --dir apps/web dev",
     "build:web": "pnpm --dir apps/web build",
-    "lint:web": "pnpm --dir apps/web lint"
+    "lint:web": "pnpm --dir apps/web lint",
+    "test:backend": "UV_CACHE_DIR=/tmp/uv-cache uv run --project apps/mcp-api pytest -q apps/mcp-api/tests",
+    "smoke:mcp:deployed": "uv run --project apps/mcp-api python apps/mcp-api/scripts/smoke_deployed_mcp.py",
+    "validate:web": "pnpm --dir apps/web typecheck && pnpm --dir apps/web lint && pnpm --dir apps/web build",
+    "validate:release": "pnpm validate:web && pnpm test:backend"
   }
 }

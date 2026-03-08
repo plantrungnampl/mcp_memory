@@ -2,14 +2,103 @@
 ## Goal
 - Implement the initial VibeRecall monorepo bootstrap from the local spec.
 - Deliver an MCP backend skeleton and a Next.js control-plane shell using the latest stable stack.
+- Roll out TanStack Query for the projects shell high-impact surfaces: provider scope, token dashboard, timeline, and API logs.
+- Extend the TanStack Query rollout to Usage Analytics while keeping the route server-first for auth and initial data.
+- Complete the TanStack Query follow-up for the `/projects` directory so sidebar, directory page, and post-create refresh share one client read model.
+- Prepare the repo for public-GA rollout on Vercel + Render with a concrete env contract, deploy artifacts, and a deployed MCP smoke path.
 
 ## Constraints
 - Keep a single canonical ledger in this file.
 - Query existing graph memory before project-related work.
 - For Next.js work, consult official Next.js 16 docs via next-devtools before coding.
 - Preserve facts only; mark uncertain items as UNCONFIRMED.
+- Keep App Router server-first: auth and initial route data stay on the server; the current TanStack follow-up is limited to Usage Analytics and still excludes cache-components work.
+- Keep the `/projects` directory rollout scoped to shared read-model caching and shallow URL-state updates; do not broaden this pass into app-shell server cache dedup or project-route restructuring.
 
 ## Key decisions
+- Public-GA hosting is now standardized as Vercel for `apps/web` and Render for the MCP runtime; the repo carries `render.yaml` for API/worker/FalkorDB plus an explicit runbook instead of leaving platform shape implicit.
+- The production env contract now distinguishes browser MCP base URL (`NEXT_PUBLIC_MCP_BASE_URL`) from backend-generated canonical MCP URL (`PUBLIC_MCP_BASE_URL`) and also requires API-side `PUBLIC_WEB_URL` plus `ALLOWED_ORIGINS` for deployed browser traffic.
+- Deployed MCP validation is now a first-class release step via `pnpm smoke:mcp:deployed`, which exercises session initialize, tools/list, read/write tool calls, and cleanup against a public MCP endpoint.
+- Release validation is now standardized at the repo root as `pnpm validate:web`, `pnpm test:backend`, and `pnpm validate:release`; the backend wrapper must target `apps/mcp-api/tests` explicitly so vendored Graphiti tests never enter the default ship gate.
+- Web production builds are now made offline-safe in the current repo by removing `next/font/google` from the active app/landing/projects layouts and using repo-managed CSS font stacks instead, eliminating build-time external font fetches in restricted environments.
+- Self-hosted Next.js production defaults now include a stable `DEPLOYMENT_VERSION` and `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` in the release env contract and container surface.
+- Code indexing is now being redesigned from file-backed local state to Postgres-backed snapshots plus async job execution; `viberecall_index_repo` should return `ACCEPTED` with `index_id` and `job_id`, while `viberecall_index_status` becomes the polling surface for current run state and the latest READY snapshot.
+- Diff indexing should no longer silently fall back to full snapshot; missing refs must fail fast, git diff errors must mark the run failed, and zero-change diffs should preserve the previous READY snapshot instead of rescanning the repo.
+- MCP runtime product policy is now all-users-free: any valid bearer token keeps full tool access, and `plan` stays dormant metadata instead of an access-control gate.
+- MCP protection policy is now auth/isolation + scope validation + rate limiting + idempotency; monthly quota blocking is intentionally disabled for the current free-access phase.
+- MCP performance hardening priority for the current backend pass is: cache graph dependency probes, cache parsed code-index state, and remove duplicate index-state loads from context-pack queries before considering async indexing.
+- React Query provider scope is now limited to `app/projects/(app-shell)` via `ProjectsQueryProvider`; root providers keep only global UI concerns like `Toaster`.
+- Token dashboard reads are consolidated behind `/api/projects/[projectId]/ops-dashboard`; token/export/maintenance mutations remain Server Actions and the client now invalidates the scoped query instead of using `router.refresh()`.
+- Revoked token visibility on `/projects/[projectId]/tokens` is now a presentation-layer rule in `TokenDashboardPanel`: the server payload remains unchanged, while the client hides revoked rows and suppresses revoked token previews across the page.
+- API Logs analytics semantics on `/projects/[projectId]/api-logs` are now MCP-only: the control-plane route filters `audit_logs.action = "tools/call"` for summary, table rows, pagination, and tool options, while raw internal audit rows remain stored for other operational surfaces.
+- The control-plane list route `/api/control-plane/projects/{project_id}/api-logs` is now also MCP-only, so the token dashboard's `Recent API Logs` widget and the dedicated API Logs page share the same `tools/call` semantics across operator-facing surfaces.
+- Live MCP operational diagnosis on 2026-03-08 is now split by transport: the Codex `viberecall-local` MCP wrapper can time out at the client layer even while direct HTTP MCP calls to `/p/{project_id}/mcp` succeed for the same project/token and tool handlers.
+- FastMCP Streamable HTTP diagnosis on 2026-03-08 is now narrowed further: repeated `POST /p/{project_id}/mcp` `404` responses imply the client is sending an unknown or expired `mcp-session-id`, because the stateful session manager would create a fresh session for requests that omit the session header.
+- Timeline pagination is now handled in-place with a client `useInfiniteQuery` panel over the existing `/api/projects/[projectId]/timeline` BFF route while preserving initial `?offset=` server entry.
+- API Logs now use a dedicated `/api/projects/[projectId]/api-logs/analytics` BFF route plus a client query panel that treats URL search params as source-of-truth and updates them shallowly with `window.history.pushState`.
+- Shared TanStack query infrastructure for projects now uses `projectQueryKeys` + `fetchQueryJson`, and Graph Playground was migrated onto that helper layer without intended behavior changes.
+- Usage Analytics now uses a dedicated `/api/projects/[projectId]/usage/analytics` BFF route, shared `normalizeUsageRange`, and a client TanStack panel that treats `range` as URL state via `window.history.pushState` while preserving server-side initial fetch and request-based CSV export.
+- `/projects` directory now uses a shared TanStack read model seeded from `app/projects/(app-shell)/layout.tsx`, backed by `GET /api/projects/directory`, so sidebar navigation, directory list, and overview table refetch together without `router.refresh()`.
+- Directory project selection on `/projects` is now shallow URL state via `window.history.replaceState`; after project creation, the new project is auto-selected in-place and the MCP modal remains open.
+- Workspace navigation now hides the `Chat` tab and `Billing` sidebar item; direct `/projects/[projectId]/chat` and `/projects/[projectId]/billing` requests should redirect to Graph Playground.
+- Direct legacy workspace route redirects are enforced in `apps/web/src/proxy.ts` so canonicalization happens before app-shell auth/layout guards run.
+- Graph Playground dependency outages are now treated as explicit service degradation: graph endpoints should return deterministic `503` errors instead of bubbling opaque `500` failures.
+- Graph Playground UI should keep timeline/sidebar context alive when graph fetch fails and render an operator-friendly unavailable state with request correlation.
+- Supabase auth hardening is active runtime policy; Clerk migration remains deferred.
+- Internal web -> control-plane auth now uses a short-lived signed assertion contract instead of shared secret + claimed user headers.
+- Control-plane tracing now uses request correlation via `X-Request-Id`, echoed by backend responses and surfaced in web/backend logs and workspace error UI.
+- `/auth/callback` redirect handling is tightened to relative in-app paths only.
+- MCP context-memory expansion is implemented as backward-compatible public tool growth (`viberecall_index_repo`, `viberecall_index_status`, `viberecall_search_entities`, `viberecall_get_context_pack`) while preserving existing `viberecall_save/search/*` contracts.
+- Live `viberecall_get_context_pack` relevance triage on 2026-03-08 showed the main failure mode was operational index scope, not ranking logic: the project index had been built only for `/Data/VibeRecall_Memory/apps/mcp-api/src/viberecall_mcp`, and re-indexing the full repo `/Data/VibeRecall_Memory` restored expected frontend citations without code changes.
+- Graph-backed MCP tools (`save`, `search`, `get_facts`, `timeline`, `update_fact`, `delete_episode`) now fail fast with deterministic `UPSTREAM_ERROR` when FalkorDB dependencies are unavailable, instead of surfacing opaque `INTERNAL` errors after partial work.
+- `viberecall_get_status` now reflects graph dependency degradation in legacy Graphiti mode, so MCP self-reporting stays aligned with `/healthz`.
+- `viberecall_delete_episode` now uses strong delete semantics: canonical memory cleanup runs before Postgres row deletion, FalkorDB facts persist durable `episode_ids` provenance, and partial cleanup must fail with `UPSTREAM_ERROR` instead of returning fake `DELETED`.
+- Code indexing persistence is now Postgres-backed per project via `code_index_runs`, `code_index_files`, `code_index_entities`, and `code_index_chunks`; file-backed `.viberecall/index-state-<project>.json` is no longer part of the runtime path.
+- v1 code extraction strategy is deterministic parser-first for TS/JS + Python (file/module/symbol/import entities + citations/snippets), with timeline evidence merged into context-pack responses.
+- Current runtime auth source-of-truth remains Supabase SSR/browser auth (GitHub OAuth + email magic link + `/auth/callback` exchange) in `apps/web`; Clerk guardrails are currently policy-level for future migration (not active runtime auth as of 2026-03-05).
+- Added full Clerk Integration Guardrails MCP (priority="absolute") – Feb 24, 2026.
+- Clerk is enforced as primary auth provider with zero-config keyless mode for future auth work.
+- All Clerk-related answers must follow `<CLERK_MCP>` ALWAYS/NEVER rules.
+- `<CLERK>` tag priority is absolute with full MCP integration semantics.
+- Graph Playground v1 is now implemented as a graph-first project detail flow: `/projects/[projectId]` redirects to `/projects/[projectId]/graphs/playground`.
+- Graph Playground rendering is now enforced through a client-only dynamic boundary (`GraphPlaygroundPanelClient` + `next/dynamic` `ssr:false`) to prevent server-side WebGL module evaluation errors (`WebGL2RenderingContext is not defined`).
+- Graph Playground BFF routes now propagate upstream control-plane status/detail (instead of collapsing to opaque 500) via shared `parseControlPlaneError` helper.
+- Local Graphiti mode is operationally coupled to FalkorDB availability (`localhost:6380`) and should be treated as a hard runtime dependency for graph endpoints.
+- Graph modeling for v1 is fixed to entity co-occurrence edges derived from fact-level entity pairs (`CO_OCCURS`) with FalkorDB/local `get_facts` compatibility.
+- Timeline thread source for right-panel context is fixed to episode timeline rows (`/api/control-plane/projects/{project_id}/timeline`).
+- Delete-entity behavior in Graph Playground is intentionally non-destructive in v1 (disabled placeholder action only).
+- Sigma mount policy for Graph Playground is now viewport-gated (`min-width: 1024px`) so the canvas never mounts inside hidden mobile DOM and avoids `Container has no height` runtime errors.
+- Graph Playground responsive rendering now avoids CSS-hidden races by conditionally rendering mobile/desktop sections from `isDesktopViewport` state (instead of `lg:hidden`/`hidden lg:grid`), so Sigma never mounts in a `display:none` container.
+- Sigma mount readiness now requires measured non-zero `getBoundingClientRect().width/height` plus renderable layout checks (`display`/`visibility` + connected node), scheduled with `requestAnimationFrame` + `ResizeObserver`, before creating `SigmaContainer`.
+- Sigma mount area now uses explicit inline fixed dimensions (`height/minHeight: 720`) for both host and Sigma container.
+- Sigma runtime policy for Graph Playground is now hybrid: strict measured mount readiness + valid coordinate invariants, with `allowInvalidContainer: true` as defensive fallback against transient container race conditions.
+- Graph Playground projects scope now imports `@react-sigma/core` base stylesheet and sets `--sigma-background-color: transparent` so Sigma wrapper/container sizing is consistently applied in Next.js App Router.
+- Graph Playground runtime UX now includes a soft warning when Sigma instance mounts but no visible canvas is detected shortly after initialization.
+- Sigma interactive reducers now preserve full node/edge display payload (`...data`) before overrides, preventing loss of required position fields during reducer application.
+- Graph builder now sanitizes all node coordinates before returning graphology instance, assigning deterministic fallback `x/y` when any position is invalid/NaN.
+- Added frontend graph stack dependencies:
+  `sigma@3.0.2`, `@react-sigma/core@5.0.6`, `@react-sigma/layout-forceatlas2@5.0.6`, `@react-sigma/layout-noverlap@5.0.6`, `graphology@0.26.0`, `graphology-layout-forceatlas2@0.10.1`, `graphology-layout-noverlap@0.4.2`.
+- Hard-cut runtime compatibility for Neo4j is now adopted (2026-03-03): `MEMORY_BACKEND` supports only `local|falkordb|graphiti`, and legacy `neo4j` alias/shim is removed from runtime routing.
+- FalkorDB is now the sole canonical graph backend for VibeRecall runtime paths (Fresh Start strategy, no Neo4j data migration).
+- `/login` redesign is now locked to Pencil-first workflow using frame `UI UX.pen -> OqZMf (Login)` as the visual source-of-truth for this iteration.
+- Login UX policy is now fixed to dark-purple dashboard language with split two-column desktop layout, minimal topbar (no nav), and no environment diagnostics card.
+- Login auth behavior remains unchanged by design: keep Supabase GitHub OAuth + email magic link with existing callback route contract.
+- `/projects` loading background coverage is now enforced by both segment loading (`min-h-screen`) and scope wrapper (`.vr-projects-scope { min-height: 100vh; }`) to prevent white viewport gaps during loading.
+- Loading policy was revised from full-page skeletons to content-only fallbacks: `app/loading.tsx` is now a top progress bar, and workspace routes rely on segment loading to preserve existing shell chrome.
+- Global loading strategy is now standardized to App Router special files: `app/loading.tsx` for whole app and `app/projects/loading.tsx` as scoped override for projects routes.
+- Projects route architecture is now split with App Router route groups: `app/projects/(app-shell)/[projectId]/(workspace|ops)` while preserving public URLs (`/projects/[projectId]/*` unchanged).
+- Secondary project tabs (`Chat | Graph Playground | Timeline | Usage`) are now scoped to `(workspace)` layout only; ops routes (`tokens`, `billing`, `api-logs`) intentionally render without those tabs.
+- Shared sidebar/chrome is now hosted in `app/projects/(app-shell)/layout.tsx` to keep shell persistent when navigating between `/projects` and `/projects/[projectId]/*`.
+- Sidebar plan usage card is now client-driven via BFF endpoint `GET /api/projects/{projectId}/usage?period=monthly` instead of per-page server prop plumbing.
+- Usage Analytics source-of-truth is now locked to Pencil frame `UI UX.pen -> d3aVp`, with backend-powered metrics and no UI-only placeholders.
+- Sidebar `Project` selector block is removed; project switching is now standardized in workspace header-right dropdown.
+- `/projects` accent policy is tightened to purple-only emphasis (`#7A2DBE/#A855F7`) for non-semantic UI highlights; cyan decorative accents are removed from active dashboard shell.
+- Projects segment visual system is now locked to explicit scope theming via `app/projects/layout.tsx` + `projects-theme.css`, not global `app/layout.tsx` overrides.
+- `/projects` UI palette policy is now hard-pinned to `#0A0A0F` root dark with purple accent pair `#7A2DBE/#A855F7`, plus Inter typography across `/projects` and nested tabs.
+- Projects motion policy is now reduced to minimal hover interactions; entry fade animations are disabled in the projects scope for closer `.pen` parity.
+- `/projects` UI source-of-truth is now locked to Pencil frame `UI UX.pen -> 8XfBy (Dashboard)` for 1:1 dashboard parity delivery.
+- Projects directory view at `/projects` is replaced by dashboard-first IA; project list table view is no longer the primary `/projects` surface.
+- Dashboard data strategy is hybrid real+fallback: each section fetches live control-plane data with soft-failure fallback to preserve layout continuity.
 - `viberecall_spec_md/` is the authoritative local design package for VibeRecall Pro system design v0.1.
 - No existing `CONTINUITY.md` was present at the project root, so this file is created as the canonical ledger.
 - Bootstrap target is a monorepo with `apps/mcp-api` and `apps/web`.
@@ -57,6 +146,10 @@
 - Temporal Edge right-side panel now follows a cinematic network-graph glow treatment (nodes + edge flows + scan sweep) with adaptive motion reduction on mobile and `prefers-reduced-motion` support.
 - Landing header auth rendering now follows a hybrid client pattern: keep `/` static on server, resolve Supabase user client-side after hydration.
 - Landing header CTA behavior is now explicit: anonymous users see `Sign In` (`/login`), signed-in users see `Projects` (`/projects`) plus an email avatar pill.
+- Landing motion polish strategy is locked to subtle CSS-only enhancements (no new animation dependency, no additional client boundary), with explicit `prefers-reduced-motion` coverage.
+- Homepage source-of-truth is now explicitly locked to Pencil frame `UI UX.pen -> 7QzET (VibeRecall Landing Page)` with pixel-perfect priority over previous Stitch-parity approximations.
+- Landing header was intentionally switched back from auth-aware runtime CTA to static visual CTA (`Sign In` + `Get Started`) to match the locked Pencil frame.
+- Landing motion policy for homepage fidelity pass is now \"mostly static\" (minimal hover transitions only), replacing prior cinematic/stagger motion behavior.
 - `/projects` now follows a dedicated dashboard shell (Stitch E2E style) instead of `AppShell`, while preserving existing control-plane actions and auth gate behavior.
 - Control-plane now exposes project-level usage timeseries and owner-scoped project overview aggregates to support dashboard chart/table surfaces without mock data.
 - Stitch dashboard artifacts are standardized under `ops/artifacts/stitch/11423673338136040083/4e597237f12047e9ac73cba639969441/` with `screen.png`, `screen.html`, and `manifest.json`.
@@ -70,11 +163,82 @@
 - `/projects/[projectId]/tokens` panel cards (Token posture/Usage/Exports/Maintenance) are now dark-themed; legacy light stone palette removed.
 - Graphiti dependency management for `apps/mcp-api` is now standardized on vendored source at `apps/mcp-api/vendor/graphiti` via `tool.uv.sources` local editable path.
 - Vendored Graphiti source is currently aligned to upstream tag `v0.28.1` (commit `76053036e3db086f57444a29c53d427b0d635a80`).
+- Graphiti sourcing strategy is locked to local editable vendor path (`vendor/graphiti`); git-subtree is not used in current baseline.
+- VibeRecall MCP now supports internal upstream Graphiti bridge mode (`GRAPHITI_MCP_BRIDGE_MODE=upstream_bridge`) while preserving stable public `viberecall_*` tool contract.
+- MCP tool surface was intentionally expanded by only two minimal additions: `viberecall_get_status` (all plans) and `viberecall_delete_episode` (pro/team).
 - Graphiti runtime hardening baseline now requires empty-by-default `GRAPHITI_API_KEY` (no hardcoded secret) and timeout-guarded best-effort sync behavior.
 - Repository root source control is now initialized with Git (`main` branch) for project-wide versioning.
 - Root ignore policy now explicitly excludes local artifacts (`.trash`, `.claude`, runtime object/export dirs, vendored `.git.vendor`) while allowing committed backend lockfile `apps/mcp-api/uv.lock`.
+- Timeline repository query now uses dynamic SQL filters for `from_time`/`to_time` to avoid asyncpg null-parameter ambiguity.
+- MCP tool error path now rolls back transaction before error audit and treats audit insert failure as best-effort logging.
+- MCP search pagination now uses an opaque merged cursor that tracks fact and recent-episode offsets independently, preventing duplicate episode replay and skipped fact pages.
+- Code indexing is now restricted by `INDEX_REPO_ALLOWED_ROOTS`, defaulting to the monorepo root unless explicitly extended by env.
+- Non-development runtime config now rejects placeholder secrets/local DB URL instead of silently booting with dev defaults.
+- MCP tool success path now treats audit logging as best-effort so observability failures do not corrupt successful tool responses.
 
 ## State
+- Public rollout artifacts are now in-repo on 2026-03-08: `render.yaml`, `ops/render/falkordb/Dockerfile`, `ops/vercel-render-public-ga.md`, and `apps/mcp-api/scripts/smoke_deployed_mcp.py` define the Vercel + Render production-candidate path.
+- Production env alignment is now fixed: `.env.production.example`, `.env.example`, `apps/web/Dockerfile`, and `ops/docker-compose.production.yml` all carry `NEXT_PUBLIC_MCP_BASE_URL`, while deployed API docs now require `PUBLIC_WEB_URL` and `ALLOWED_ORIGINS`.
+- Repo-level release validation is now fully confirmed from the current workspace: `pnpm validate:web` passed and `pnpm test:backend` passed with `108 passed, 2 skipped`.
+- Production-readiness confidence improved on 2026-03-08: the web ship gate is now green in the current workspace (`pnpm --dir apps/web typecheck`, `lint`, and `build` all pass) after fixing the PNPM/ESLint resolver issue and removing build-time remote font fetches from the active layouts.
+- Production container surface now exists in-repo: `.env.production.example`, `apps/web/Dockerfile`, `apps/mcp-api/Dockerfile`, and `ops/docker-compose.production.yml` define the default public-GA runtime shape (`falkordb + redis + celery`, external Postgres, web/api/worker containers).
+- Backend default release wrapper now points only at `apps/mcp-api/tests`, and the repo-root backend gate is confirmed green in the current workspace (`108 passed, 2 skipped`).
+- Full `viberecall-local` MCP tool sweep succeeded on 2026-03-08 for project `proj_db22d3aeb8f54962833cb5100da28202`: all read/index/write/delete tools responded, and a temporary smoke episode was created, updated, then deleted cleanly.
+- Codex `viberecall-local` wrapper is confirmed responsive again on 2026-03-08: `viberecall_get_status` returned `ok` for project `proj_db22d3aeb8f54962833cb5100da28202` with `graphiti/local/eager` backends, and `search_entities` returned indexed symbols from the current repo.
+- Backend pass on 2026-03-08 moved code indexing persistence from `REPO_ROOT/.viberecall/index-state-<project>.json` into Postgres lifecycle/snapshot tables plus queue-backed worker execution.
+- Live Supabase schema for async code indexing is now present after applying migration `011_code_index_async_postgres.sql`; runtime smoke verification against `viberecall_index_repo`/`viberecall_index_status` is the active follow-up.
+- Live runtime `:8010` now successfully completes async Postgres-backed indexing after fixing `text[]` bind params in `code_index.py`; `index_repo`, `index_status`, and `search_entities` all passed on a temporary smoke project that was cleaned up afterward.
+- Graph Playground redesign scope is locked to a `dark refined` UI in `apps/web`: compact hero + stat pills, split control rail, full-width graph stage, inline search palette, contextual inspector, and a recent-threads block below the canvas.
+- Graph Playground control rail compactness is now locked to a toolbar-first layout: one dominant search row with inline toggles/actions, plus a low horizontal entity-type strip instead of the earlier tall two-column card.
+- Graph Playground static product copy policy is now English-only within the Graph Playground surface; mixed-language UI text in the hero and graph empty state is intentionally removed without introducing i18n plumbing.
+- Projects directory TanStack follow-up is implemented in `apps/web`: `app/projects/(app-shell)/layout.tsx` seeds a shared directory query, `/api/projects/directory` serves the read model, and both the sidebar and `/projects` page now consume the same cached payload.
+- `/projects` no longer duplicates `getProjectsBaseData()` in the page entry, and `createProjectAction` success no longer relies on `router.refresh()` to update directory UI.
+- Usage Analytics TanStack follow-up is implemented in `apps/web`: server page still fetches initial analytics, the page now hydrates a client query panel, and range changes refetch via `/api/projects/[projectId]/usage/analytics` without full route navigation.
+- TanStack Query rollout is implemented in `apps/web` for projects-scoped provider, token dashboard, timeline, API logs, and Graph Playground query helpers.
+- API Logs MCP-only filtering is now implemented in code: repo helpers accept optional `action_name`, the analytics route passes `action_name="tools/call"`, and the web panel copy now labels the totals/footer as MCP requests.
+- Token dashboard `Recent API Logs` is now aligned with MCP-only semantics: the widget consumes the normalized `/api-logs` list route and drops the redundant `Action` column now that rows are limited to `tools/call`.
+- Direct HTTP MCP smoke on the current project is now confirmed healthy end-to-end: `initialize`, `tools/list`, all 11 tool handlers, write/update/delete cleanup, and full-repo `index_repo` on `:8010` all succeeded against `proj_db22d3aeb8f54962833cb5100da28202`.
+- `pnpm --dir apps/web typecheck` passes.
+- `pnpm --dir apps/web lint` passes after switching the workspace script to a repo-local launcher (`apps/web/scripts/run-eslint.mjs`) that ensures `next/dist/compiled/babel/eslint-parser` resolves correctly from the monorepo root layout.
+- `pnpm --dir apps/web build` passes after replacing active `next/font/google` usage with offline-safe CSS font stacks in the root app, landing page, and projects scope.
+- Project workspace navigation is being simplified so Graph Playground remains the canonical project entrypoint and legacy `Chat`/`Billing` routes no longer surface in normal UI flow.
+- MCP now exposes project indexing/context tools for pro/team paths through FastMCP dispatch and handler layer.
+- Context-pack output now includes architecture summary, relevant symbols, code citations, and matched timeline evidence (`facts_timeline`) for downstream agent reasoning.
+- `viberecall-local` index state for project `proj_db22d3aeb8f54962833cb5100da28202` is now `READY` against repo path `/Data/VibeRecall_Memory`, and the triage query corpus now returns frontend-first citations for the recent TanStack rollouts.
+- Local `viberecall-local` runtime on `:8010` is currently healthy in `.env` default mode (`MEMORY_BACKEND=graphiti`, `QUEUE_BACKEND=eager`, `KV_BACKEND=local`) after bringing up `ops/docker-compose.runtime.yml` and restarting uvicorn.
+- Live MCP delete regression is fixed on `viberecall-local`: after `save -> update_fact -> delete_episode`, the deleted episode no longer appears in `search`, `get_facts`, or `timeline`, and a second delete now returns `NOT_FOUND`.
+- Login/session flow is currently enforced by Supabase across proxy/session refresh (`src/proxy.ts` + `lib/supabase/proxy.ts`), login actions (`components/login-actions.tsx`), callback exchange (`app/auth/callback/route.ts`), and server-side guards (`getAuthenticatedProjectUser()` in `app/projects/_lib/projects-server.ts`).
+- Control-plane now serves graph memory APIs for workspace visualization:
+  `GET /api/control-plane/projects/{project_id}/graph`,
+  `GET /api/control-plane/projects/{project_id}/graph/entities/{entity_id}`,
+  `GET /api/control-plane/projects/{project_id}/timeline`.
+- Web BFF now proxies project graph/timeline calls under App Router route handlers:
+  `/api/projects/[projectId]/graph`,
+  `/api/projects/[projectId]/graph/entities/[entityId]`,
+  `/api/projects/[projectId]/timeline`.
+- Project detail workspace now includes top tabs `Graph Playground | Timeline | Usage` and sidebar quick access `Projects | VibeTokens | Graphs / Playground | Usage Analytics | API Logs`.
+- Graph Playground UI is live at `/projects/[projectId]/graphs/playground` with Sigma.js WebGL rendering, ForceAtlas2 + Noverlap layout, hover/click/search/filter, 10s polling, and PNG/JSON export.
+- Graph Playground route now imports a client wrapper component from server page to isolate `@react-sigma/core` from SSR paths.
+- Graph Playground BFF route handlers (`graph`, `graph/entities`, `timeline`) now return upstream status/detail payloads for expected control-plane failures.
+- Runtime dependency check is now green in local dev (`/healthz` reports FalkorDB status `ok`) after bringing up `ops` runtime compose services.
+- Mobile behavior for Graph Playground now follows list-view fallback (graph canvas disabled on small screens).
+- MCP backend now normalizes `reference_time` on episode inserts, supports stable mixed-result search pagination, and blocks repo indexing outside configured allowlisted roots.
+- MCP runtime access policy is now full-access for any valid bearer token: plan/scope/rate-limit/quota gates are bypassed in `tools/list` and tool execution, while auth/expiry/revocation/project-binding checks remain enforced.
+- Control-plane token issuance now grants full MCP scopes for all plans so new/rotated tokens match the runtime full-access behavior without requiring DB backfill.
+- Current code/test baseline for MCP fixes is green in focused validation; default local `:8010` runtime can still fail if FalkorDB is unavailable under graph-backed env.
+- Graph Playground canvas mount is now bound to live media-query state (desktop only), preventing Sigma runtime failures on hidden mobile sections.
+- Graph Playground desktop/mobile section visibility is now controlled by React state (`isDesktopViewport`) rather than breakpoint-only utility classes to prevent resize race conditions.
+- Graph Playground now gates Sigma mount with measured `getBoundingClientRect()` size + renderable layout checks and shows a temporary "Preparing graph canvas..." placeholder until mount conditions are met.
+- Sigma container config now includes `allowInvalidContainer: true` as defensive fallback while preserving strict mount-readiness checks and coordinate invariants.
+- Graph Playground now loads Sigma base CSS from `@react-sigma/core/lib/style.css` through projects theme scope, preventing wrapper/canvas collapse states where graph appears as a thin line or blank area.
+- Graph Playground now surfaces an inline warning when Sigma reports no visible canvas after mount, giving users a clear recover path (`Refresh Graph` or resize).
+- Sigma node/edge reducers now retain original display data to avoid dropping coordinates (`x/y`) and causing runtime position validation failures.
+- Graph construction now enforces finite node positions (`x/y`) as a hard invariant before Sigma load.
+- `/login` now has a dedicated dark split-screen UX direction in Pencil and no longer depends on the light `AppShell` composition pattern.
+- Login technical diagnostics are intentionally removed from primary UI; only actionable auth status messaging remains in form context.
+- `/projects` loading no longer leaves a light background gap below skeleton in tall viewports because the projects scope now guarantees viewport-height background fill.
+- Route loading UX now favors partial/content streaming feedback: root uses top progress only, and `/projects/[projectId]/*` keeps sidebar/header while children load.
+- Global route transition loading UI is now implemented for both root and projects segments using Server Component `loading.tsx` files.
 - Overview, architecture, MCP protocol, auth/tenancy, tools contract, data model, pipelines, pricing, observability, deployment, and error catalog have been reviewed.
 - Technology mentions across the spec have been extracted and grouped.
 - Ambiguities in the spec have been reviewed across transport, storage, pricing, and deployment details.
@@ -119,8 +283,236 @@
 - API logs pagination uses cursor semantics (`id desc`) and backend index `idx_audit_logs_project_id_desc` via migration `007_audit_logs_pagination_index.sql`.
 - `/projects` and `/projects/[projectId]/*` now share a single visual shell/sidebar system, so sidebar navigation remains visible on both route families.
 - `apps/mcp-api` dependency policy is now hardened to enforce vendored local editable Graphiti source under `vendor/graphiti`.
+- `/projects` control-plane calls now emit structured server-side request logs (`control_plane_request_*`) and backend auth logs (`control_plane_auth_*`) keyed by shared `X-Request-Id`.
+- Workspace-facing control-plane error cards now special-case `Missing control-plane assertion` with refresh/re-auth guidance plus surfaced request id for correlation.
 
 ## Done
+- Implemented release-gate scripts at the repo root on 2026-03-08: `pnpm validate:web`, `pnpm test:backend`, and `pnpm validate:release`.
+- Implemented repo-local ESLint bootstrap on 2026-03-08 in `apps/web/scripts/run-eslint.mjs` and wired `apps/web/package.json` to use it, fixing the workspace resolver failure for `next/dist/compiled/babel/eslint-parser`.
+- Fixed current web lint blockers on 2026-03-08 across the touched project surfaces: removed the unused `Link` import in the projects app-shell layout, eliminated `react-hooks/set-state-in-effect` violations in Graph Playground/API Logs/token panel components, and escaped the remaining unescaped apostrophe in Graph Playground hero copy.
+- Removed active `next/font/google` dependencies from the root layout, landing page, and projects layout on 2026-03-08; the app now uses repo-managed CSS font stacks so production builds no longer depend on outbound font fetches.
+- Added self-hosted production surface on 2026-03-08: `.dockerignore`, `.env.production.example`, `apps/web/Dockerfile`, `apps/mcp-api/Dockerfile`, and `ops/docker-compose.production.yml`.
+- Added Next.js self-hosting hardening on 2026-03-08: `apps/web/next.config.ts` now uses `deploymentId` from `DEPLOYMENT_VERSION`, and the production env/container docs now require a stable `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`.
+- Verified on 2026-03-08 that the web release gate is green through the underlying commands: `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, and `pnpm --dir apps/web build` all passed in the current workspace after the lint/font fixes.
+- Ran a production-readiness spot check on 2026-03-08: `pnpm --dir apps/web typecheck` passed, `pnpm --dir apps/web build` passed, `pnpm --dir apps/web lint` failed with the existing `next/dist/compiled/babel/eslint-parser` resolution issue, and backend `uv run pytest -q` from repo root was confirmed misleading because it collects vendored Graphiti tests outside the backend `tests/` path.
+- Ran a full `viberecall-local` MCP smoke on 2026-03-08 across all current tools: `get_status`, `index_status`, `search`, `get_facts`, `search_entities`, `timeline`, `get_context_pack`, `index_repo`, `save`, `update_fact`, and `delete_episode`.
+- Verified the 2026-03-08 full-tool smoke cleanup: the temporary marker `mcp-all-tools-20260308T1027Z` disappeared from `search`, `get_facts`, and `timeline` after `delete_episode`.
+- Stored the 2026-03-08 full-tool smoke result into graph memory for future operational recall.
+- Re-checked the local MCP wrapper on 2026-03-08: `viberecall-local` returned healthy `get_status` output for the current project and `search_entities` resolved runtime/index symbols from `apps/mcp-api/src/viberecall_mcp`.
+- Implemented revoked-token hiding on 2026-03-08 in `apps/web/src/components/projects/token-dashboard-panel.tsx`: the panel now derives `visibleTokens`, hides revoked rows from Token Management, and suppresses revoked token previews from the Quick Integration card when no active token remains.
+- Verified the revoked-token hiding pass on 2026-03-08: `pnpm --dir apps/web typecheck` passed, and the Next.js dev runtime on `:3000` reported no browser-session errors after the change; production build did not return within the current CLI wait window, so only typecheck + runtime diagnostics are confirmed in this turn.
+- Implemented MCP-only API Logs semantics on 2026-03-08: `apps/mcp-api` analytics queries now filter to `audit_logs.action = "tools/call"` while `apps/web` labels the dashboard as MCP requests/errors, removing control-plane/internal activity from the operator-facing API Logs page without changing the route contract.
+- Verified the MCP-only API Logs pass on 2026-03-08: `uv sync --locked` completed in `apps/mcp-api`, focused backend route coverage passed (`uv run pytest -q tests/test_control_plane_api.py` => `37 passed` from `apps/mcp-api`), and `pnpm --dir apps/web typecheck` passed.
+- Extended MCP-only API Logs normalization on 2026-03-08 to the token dashboard: `list_audit_logs_for_project` now accepts `action_name`, `/api/control-plane/projects/{project_id}/api-logs` passes `action_name="tools/call"`, and `TokenDashboardPanel` removed the now-useless `Action` column from `Recent API Logs`.
+- Re-verified the token dashboard/API Logs alignment on 2026-03-08: focused backend route coverage still passed (`37 passed`) and `pnpm --dir apps/web typecheck` still passed after the widget table change.
+- Ran direct MCP HTTP smoke on 2026-03-08 against the current project/token: `tools/list` returned the full 11-tool catalog, `get_status/index_status/timeline/search/get_facts` all returned `ok`, `index_repo` rebuilt `/Data/VibeRecall_Memory` to `READY`, `search_entities/get_context_pack` returned indexed results, and `save -> update_fact -> delete_episode` completed with cleanup verified by `search` and `get_facts`.
+- Confirmed on 2026-03-08 that the failing surface is the Codex `viberecall-local` wrapper path, not the backend runtime itself: the wrapper timed out for all tool calls, while the same calls over direct HTTP MCP succeeded immediately.
+- Implemented repo-local stale-session guidance on 2026-03-08: backend MCP tests now lock `GET /mcp -> 406` and stale `mcp-session-id -> 404 Session not found`, while README, `/docs`, and the project-created MCP modal now tell operators to reconnect the client after backend reloads.
+- Implemented Graph Playground English-only static copy on 2026-03-08 in `apps/web`: replaced the remaining Vietnamese hero subtitle and graph empty-state messaging with concise English product copy, without touching timeline/workspace routes or payload-driven content.
+- Verified the Graph Playground English-only copy pass on 2026-03-08: Graph Playground source files no longer match Vietnamese characters, `pnpm --dir apps/web typecheck` passed, `pnpm --dir apps/web build` passed, and `react-doctor` stayed at `98/100` with only pre-existing warnings outside the Graph Playground files.
+- Implemented Graph Playground control-rail compaction on 2026-03-08 in `apps/web`: replaced the tall two-column control card with a toolbar-style search/toggle/action row, moved entity types into a horizontally scrollable strip, and added compact chip-rail CSS in `projects-theme.css`.
+- Verified the Graph Playground control-rail compaction on 2026-03-08: `pnpm --dir apps/web typecheck` passed, `pnpm --dir apps/web build` passed, and `react-doctor` stayed at `98/100` with only pre-existing warnings outside the touched files.
+- Implemented Graph Playground redesign on 2026-03-08 in `apps/web`: split the panel into dedicated UI subcomponents (`Hero`, `ControlRail`, `GraphStage`, `SearchPalette`, `EntityInspector`, `RecentThreads`), changed the default graph density to `last 30 days` + `500/1200`, and added a refined dark visual system in `projects-theme.css`.
+- Verified the Graph Playground redesign on 2026-03-08: `pnpm --dir apps/web typecheck` passed, `pnpm --dir apps/web build` passed, and `react-doctor` scored `98/100` with only pre-existing warnings outside the updated Graph Playground files.
+- Fixed async Postgres code-index persistence bug on 2026-03-08: `code_index.py` now binds native `list[str]` values for `search_tokens`/`tokens` and array filters instead of Postgres array-literal strings, eliminating the asyncpg `DataError` on `code_index_entities` inserts.
+- Added backend regression coverage on 2026-03-08 in `apps/mcp-api/tests/test_runtime_backends.py` to verify code-index snapshots persist/query `text[]` columns correctly against the real DB session layer.
+- Verified async Postgres-backed indexing live on 2026-03-08 after the bind fix: a fresh control-plane-created project/token successfully completed `viberecall_index_repo` on `:8010`, `viberecall_index_status` returned `READY` with populated stats (`file_count=51`, `entity_count=645`, `chunk_count=536`), and `viberecall_search_entities` returned `handle_index_repo`; temporary smoke projects were cleaned up from Supabase afterward.
+- Re-validated MCP code-index surfaces on 2026-03-08: `uv run pytest -q tests/test_runtime_backends.py` passed (`5 passed`) and targeted MCP index/search/context-pack coverage in `tests/test_mcp_tools.py -k 'index_repo or search_entities or context_pack'` passed (`9 passed`).
+- Implemented async Postgres-backed code indexing on 2026-03-08: `viberecall_index_repo` now queues index runs and returns `ACCEPTED + index_id + job_id`, `viberecall_index_status` now reports `QUEUED|RUNNING|READY|FAILED` plus `latest_ready`, and `search_entities`/`get_context_pack` now read only the latest READY snapshot instead of file-backed state.
+- Added migration `011_code_index_async_postgres.sql` on 2026-03-08 with `code_index_runs`, `code_index_files`, `code_index_entities`, and `code_index_chunks`, plus worker/task-queue wiring for `viberecall.index_repo`.
+- Applied migration `011_code_index_async_postgres.sql` to the live Supabase Postgres database on 2026-03-08 and verified the four code-index tables plus supporting indexes exist.
+- Verified async Postgres-backed code indexing on 2026-03-08: `python -m py_compile` passed for all touched backend modules, focused pytest passed (`37 passed` across `test_runtime_backends.py` + `test_mcp_tools.py`), and full backend suite passed from `apps/mcp-api` (`105 passed, 2 skipped`).
+- Implemented MCP all-users-free hardening on 2026-03-08: `plan` remains dormant metadata, authenticated tokens still see the full tool catalog, real scope validation and per-tool rate limiting are now enforced in handlers, quota blocking stays disabled, graph dependency probes are TTL-cached, and code-index state now uses process-local cache with single-load context-pack queries.
+- Verified MCP all-users-free hardening on 2026-03-08: focused backend MCP/runtime pytest passed (`36 passed`) and full backend suite from `apps/mcp-api` passed (`100 passed, 2 skipped`).
+- Stabilized local Graphiti runtime on 2026-03-08: extracted shared graph dependency detail helpers, added MCP dependency preflight to graph-backed memory tools, updated `viberecall_get_status` to report degraded dependency state, and documented the default local `graphiti + eager + local KV` runbook plus required startup checks in `apps/mcp-api/README.md`.
+- Verified Graphiti stabilization on 2026-03-08: focused backend pytest passed (`62 passed`), full backend suite passed from `apps/mcp-api` (`93 passed, 2 skipped`), `/healthz` returned `status=ok`, and live `viberecall-local` smoke on `:8010` passed for `get_status`, `save`, `search`, `timeline`, and `index_status`.
+- Implemented `viberecall_delete_episode` consistency fix on 2026-03-08: memory-core delete now returns structured cleanup status, FalkorDB facts store durable `episode_ids`, handler deletes canonical memory before Postgres/object cleanup, and MCP delete now raises `UPSTREAM_ERROR` when cleanup is incomplete.
+- Verified `viberecall_delete_episode` consistency fix on 2026-03-08: focused backend pytest passed (`63 passed, 1 skipped` including new delete regressions), full backend suite from `apps/mcp-api` passed (`94 passed, 2 skipped`), FalkorDB integration roundtrip passed with `RUN_RUNTIME_INTEGRATION=1`, and live `viberecall-local` smoke confirmed deleted episodes disappear from `search`, `get_facts`, and `timeline`.
+- Verified live VibeContext retrieval quality on 2026-03-08 against `viberecall-local`: `viberecall_index_status` showed the project was incorrectly indexed only at `/Data/VibeRecall_Memory/apps/mcp-api/src/viberecall_mcp`, re-indexed the full repo with `viberecall_index_repo`, and re-ran the 4-query context-pack corpus successfully (`projects directory`, `usage analytics`, and `projects-workspace-nav` now return frontend rollout files in top citations while broad rollout queries still include timeline evidence).
+- Implemented the `/projects` directory TanStack rollout on 2026-03-08: added shared `ProjectsDirectoryPayload`, `projectQueryKeys.directory()`, `GET /api/projects/directory`, seeded the projects query client from the app-shell layout, added client query consumers for the sidebar and directory page, and replaced the create-flow `router.refresh()` with targeted directory invalidation + shallow `?project=` updates.
+- Verified the `/projects` directory rollout on 2026-03-08: `pnpm --dir apps/web typecheck` passed, `pnpm --dir apps/web build` passed, `react-doctor` scored `98/100`, and `pnpm --dir apps/web lint` remained blocked by the existing Next.js ESLint parser resolution issue.
+- Implemented Usage Analytics TanStack follow-up on 2026-03-08: added `/api/projects/[projectId]/usage/analytics`, moved usage range normalization into shared `lib/api/usage-range.ts`, extended `projectQueryKeys`, and converted `usage-analytics-panel.tsx` into a client query surface with shallow URL-state range switching and stale-data warning UI.
+- Verified the Usage Analytics rollout on 2026-03-08: `pnpm --dir apps/web typecheck` passed, `pnpm --dir apps/web build` passed, `react-doctor` scored `97/100` with only pre-existing warnings outside the touched files, and `pnpm --dir apps/web lint` remained blocked by the existing Next.js ESLint parser resolution issue.
+- Implemented the TanStack Query projects rollout on 2026-03-07: removed the root-wide query provider, added a projects-scoped provider, introduced shared query fetch/key helpers, and migrated Graph Playground plus the plan usage card onto the shared client query layer.
+- Implemented an ops-dashboard BFF read model on 2026-03-07 (`getProjectOpsDashboard` + `/api/projects/[projectId]/ops-dashboard`) and rewired the tokens page/panel to use targeted query invalidation plus bounded export/maintenance polling instead of `router.refresh()`.
+- Implemented client timeline pagination on 2026-03-07 with `useInfiniteQuery` over `/api/projects/[projectId]/timeline`, preserving initial server entry via `searchParams.offset`.
+- Implemented API logs client querying on 2026-03-07 with shared search normalization, a new `/api/projects/[projectId]/api-logs/analytics` BFF route, shallow URL-state updates, and previous-data preservation during filter/cursor refetches.
+- Implemented Graph Playground dependency failure handling on 2026-03-07: backend graph routes now preflight runtime dependencies, normalize FalkorDB/Graphiti outages to deterministic `503` errors, and preserve existing `404`/`422` behavior for entity lookup and validation failures.
+- Implemented Graph Playground client-side error normalization on 2026-03-07: web parser now understands BFF payloads shaped like `{ error, detail, request_id, upstream_status }`, and the graph panel now renders a friendly unavailable state with request id plus runtime recovery hint instead of raw JSON text.
+- Verified Graph Playground dependency fix on 2026-03-07: focused backend pytest passed (`7 passed`), web unit tests passed, `apps/web` typecheck passed, `apps/web` production build passed, and `react-doctor` reported no issues in the updated graph panel.
+- Brought local runtime graph dependencies back online on 2026-03-07 with `docker compose -f ops/docker-compose.runtime.yml up -d`; `/healthz` now reports FalkorDB status `ok`.
+- Implemented workspace navigation cleanup on 2026-03-07: removed `Chat` from project tabs, removed `Billing` from sidebar navigation, and converted both legacy route entrypoints to server-side redirects targeting `/projects/[projectId]/graphs/playground`.
+- Added request-layer redirects in `apps/web/src/proxy.ts` on 2026-03-07 so `/projects/[projectId]/chat` and `/projects/[projectId]/billing` canonicalize before parent auth/layout checks execute.
+- Implemented Supabase auth hardening on 2026-03-06: web BFF now signs short-lived control-plane assertions, backend verifies signature/audience/issuer/timestamps, and `/auth/callback` now only accepts safe relative in-app redirects.
+- Verified auth hardening on 2026-03-06: `apps/mcp-api` focused pytest suite passed (`39 passed`), `apps/web` typecheck passed, `apps/web` production build passed, and Next.js dev runtime reported no browser-session errors.
+- Added request-id propagation and assertion diagnostics on 2026-03-06: FastAPI now echoes `X-Request-Id`, backend control-plane auth logs standardized failure reasons without leaking assertions, and web control-plane fetches log structured start/complete/network-error events.
+- Added regression coverage on 2026-03-06 for request-id echoing and assertion error classification in backend tests, plus web unit coverage for signed header creation and request-id error parsing.
+- Added operations guidance on 2026-03-06 documenting that both `next dev` and `uvicorn --reload` must be restarted after internal auth contract or `CONTROL_PLANE_INTERNAL_SECRET` changes.
+- Reviewed current auth stack end-to-end on 2026-03-06 and confirmed the active runtime remains Supabase SSR/browser auth with weak internal control-plane identity forwarding.
+- Ran live `viberecall-local` smoke test on 2026-03-06 from Codex: `viberecall_get_status` returned `ok`, `viberecall_timeline` returned recent episodes, but `viberecall_search` failed with `Error 111 connecting to localhost:6380. Connection refused.`
+- Live `viberecall_save` smoke test exposed two runtime failure modes on 2026-03-06: with `reference_time=\"2026-03-06T00:00:00Z\"` it failed DB insert bind coercion (`expected datetime/date, got str`), and without `reference_time` it still failed on Falkor/graph dependency connection refusal at `localhost:6380`.
+- Fixed MCP endpoint default base URL mismatch: `public_mcp_base_url` default changed to `http://localhost:8010` (was `:8000`) in `apps/mcp-api/src/viberecall_mcp/config.py` to align with runtime/docs and avoid generated `/p/{project_id}/mcp` endpoints pointing to wrong port.
+
+## Now
+- The repo is at a production-candidate state: release gates are green and the deploy/runbook surface for Vercel + Render is implemented, but the remaining work is platform provisioning plus authenticated QA on the deployed domains.
+- The current rollout blocker is no longer code or local validation; it is the external final mile: create the Vercel/Render services, wire real secrets/domains, seed a dedicated QA project/token, and run browser checks as a signed-in user.
+- Current release posture is production-candidate hardening: web and backend release gates are green, and the remaining launch work is deployed authenticated QA on key `/projects` surfaces.
+- Full local MCP tool coverage is green from the latest smoke pass; remaining runtime concern is only whether wrapper timeouts resurface intermittently under future sessions.
+- Immediate MCP wrapper verification is green again for `viberecall-local`; no active transport repair is in progress from this spot check.
+- Revoked-token hiding for `/projects/[projectId]/tokens` is code-complete in the client panel; the only remaining verification gap is an authenticated browser pass on the token page because local headless access still stops at the sign-in-required gate.
+- API Logs MCP-only filtering is code-complete and validated with focused backend tests + web typecheck; remaining follow-up is authenticated browser confirmation that the table no longer shows `tool = -` / user-UUID token rows.
+- Token dashboard `Recent API Logs` is code-complete and validated in type/tests; remaining follow-up is authenticated browser confirmation that the VibeToken widget now shows only MCP tool rows and no longer renders the `Action` column.
+- Current runtime follow-up is now focused on the Codex `viberecall-local` client path: the backend tool handlers are healthy, but the wrapper still times out on `tools/call` despite `/healthz` and direct HTTP MCP being healthy.
+- Graph Playground English-only copy pass is code-complete and validated; the remaining visual QA gap is still authenticated browser verification because the local headless browser currently lands on the sign-in-required state for `/projects`.
+- Graph Playground redesign and compact-toolbar follow-up are both code-complete; the only remaining UX follow-up is authenticated browser verification because the headless local browser currently lands on the sign-in-required state for `/projects`.
+- Async Postgres-backed indexing is live in schema and runtime; immediate follow-up is optional wider validation (`test_mcp_tools.py` or another full backend sweep) rather than emergency backend repair.
+- Graph Playground redesign is now implemented and validated in code: desktop defaults are `last 30 days`, `maxNodes=500`, `maxEdges=1200`, and the panel now uses graph-specific theme tokens/backgrounds plus a contextual inspector layout.
+- Graph Playground control rail is now compacted in code: the old `Explore + Actions` two-column block has been flattened into a toolbar row plus horizontal chip rail, returning vertical space to the graph stage without changing behavior.
+- TanStack rollout for the projects shell and `/projects` directory is implemented and verified with green web ship-gate commands; remaining follow-up is authenticated browser validation rather than local lint/build repair.
+- VibeContext retrieval quality is currently operationally healthy after the full-repo re-index; no code-level ranking fix is active in this pass.
+- Graphiti-backed MCP runtime is stable under the current local `.env` defaults; the current follow-up risk is operational drift if FalkorDB is not started before backend boot.
+- MCP delete semantics are now stable for new writes under the current Graphiti/FalkorDB runtime; the remaining caveat is that already-orphaned legacy facts without recoverable provenance are not backfilled in this pass.
+
+## Next
+- Provision the actual Vercel project (`apps/web` root directory) and Render services (`viberecall-api`, `viberecall-worker`, `viberecall-falkordb`, plus Render Key Value), then inject the real production env values from the new contract.
+- Run `pnpm smoke:mcp:deployed -- --base-url https://api.<domain> --project-id <project_id> --token <plaintext_mcp_token>` against the deployed MCP endpoint and keep the output as release evidence.
+- Run the authenticated browser pass on `/projects`, `/projects/[projectId]/tokens`, `/projects/[projectId]/api-logs`, `/projects/[projectId]/usage`, and `/projects/[projectId]/graphs/playground` against `https://app.<domain>`.
+- Finish a clean backend validation pass in the same execution mode as CI (`apps/mcp-api` working directory, non-vendored tests only) and separate any slow opt-in integration suites from the default ship gate.
+- Run `pnpm validate:web` and `pnpm test:backend` in the target CI/deploy environment to confirm the new root release wrappers behave the same way outside the current Codex exec transport.
+- Run an authenticated browser pass for `/projects`, `/projects/[projectId]/tokens`, `/projects/[projectId]/api-logs`, `/projects/[projectId]/usage`, and `/projects/[projectId]/graphs/playground`, then capture screenshots and regressions against the production-readiness checklist.
+- If wrapper instability returns, reproduce it first against the same all-tool sequence to isolate whether the failure is session reuse, payload-specific handling, or intermittent client transport behavior.
+- If the wrapper timeout resurfaces, reproduce it with a write-path tool (`save` or `search`) to determine whether the regression is limited to specific `tools/call` payloads instead of the whole local MCP wrapper.
+- Run an authenticated browser pass for `/projects/[projectId]/tokens` and confirm that revoking a token removes its row and clears the secret-token preview when no active token remains.
+- Run an authenticated browser pass for `/projects/[projectId]/api-logs` and confirm the cards/table now exclude control-plane/internal rows, the tool dropdown contains only MCP tools, and the visible total drops to MCP traffic only.
+- Run an authenticated browser pass for `/projects/[projectId]/tokens` and confirm the `Recent API Logs` widget excludes `control-plane/*` rows, shows only `Time | Status | Tool | Request ID`, and remains consistent with `/projects/[projectId]/api-logs`.
+- Debug why the Codex `viberecall-local` MCP client wrapper times out for `tools/call` even though the same project-bound endpoint and bearer token work over direct HTTP MCP.
+- Run an authenticated browser pass for `/projects/[projectId]/graphs/playground` and capture screenshots once a valid local session is available; unauthenticated headless checks currently stop at the sign-in-required gate.
+- Store the new async Postgres-backed indexing architecture decision in graph memory and watch for any operational regressions in eager vs Celery queue modes.
+- If desired, rerun a broader backend validation pass (`uv run pytest -q` from `apps/mcp-api`) now that the live bind-parameter bug has been fixed in addition to the focused runtime-backends suite.
+- If real usage shows friction, tune the per-tool rate-limit buckets before changing the public tool surface or introducing async indexing.
+- Consider whether to add a lightweight repo-level backend test wrapper (`pnpm` or shell script) that always runs from `apps/mcp-api`, since `uv run --project apps/mcp-api pytest -q` from repo root can still wander into vendored Graphiti tests during collection.
+- Decide whether to repair the PNPM/ESLint module-resolution issue (`next/dist/compiled/babel/eslint-parser` missing from root resolution) in repo tooling or accept it as an environment blocker outside this feature scope.
+- If VibeContext relevance drifts again after a fresh full-repo index, the next backend action is code-level ranking hardening in `apps/mcp-api/src/viberecall_mcp/code_index.py` plus explicit relevance assertions in `apps/mcp-api/tests/test_mcp_tools.py`.
+- Decide later whether to add an explicit repair/admin flow for historical orphan facts that predate durable `episode_ids` provenance on FalkorDB fact nodes.
+- If TanStack work continues, the next likely wins are server-side dedup of repeated `getProjectsBaseData()` calls across nested layouts/pages or any remaining UX polish around `/projects` shallow selection.
+- Consider any follow-up TanStack coverage only for surfaces with real client interactivity pressure after this rollout stabilizes.
+- Verify `/projects/[projectId]/chat` and `/projects/[projectId]/billing` redirect to `/projects/[projectId]/graphs/playground`, then decide separately whether to remove dormant billing/chat frontend codepaths beyond route stubs.
+- Refresh the authenticated `/projects/[projectId]/graphs/playground` browser session and confirm the graph canvas repopulates now that `/healthz` is healthy.
+- Restart `apps/web` and `apps/mcp-api`, hard refresh browser session, and verify `/projects` plus one nested workspace route no longer show `Missing control-plane assertion`.
+- Rotate `CONTROL_PLANE_INTERNAL_SECRET` and Supabase privileged credentials in local/shared environments.
+- Optionally repair the frontend ESLint environment issue (`next/dist/compiled/babel/eslint-parser` missing) so lint can be used as an active gate again.
+
+## Open questions
+- UNCONFIRMED: whether Render blueprint import accepts the current `type: pserv` FalkorDB service shape without manual dashboard adjustment in this account; the repo now includes the intended blueprint, but the actual Render account import has not been executed here.
+- UNCONFIRMED: whether the dedicated QA project/token and signed-in test user will be created manually in staging/production or via a small scripted seed step before browser QA starts.
+- UNCONFIRMED: whether VibeContext should add an explicit regression test or status warning when a project index is `READY` but `repo_path` points at a narrow subdirectory instead of the intended repo root.
+- UNCONFIRMED: whether product wants a future toggle or separate admin surface for raw internal/control-plane audit rows now that operator-facing API Logs only shows MCP tool calls.
+- UNCONFIRMED: whether any non-web consumer depends on the old raw semantics of `GET /api/control-plane/projects/{project_id}/api-logs`, since current repo search shows only the token dashboard widget using that list route.
+- UNCONFIRMED: whether the Codex `viberecall-local` wrapper is reusing a stale MCP session/client implementation that no longer matches the backend's current Streamable HTTP behavior, since direct `initialize` + `tools/call` over HTTP still work with the same endpoint and token.
+- UNCONFIRMED: why `eslint-config-next@16.1.6` resolves from the root PNPM store without a matching root-level `next` module, while `apps/web` typecheck/build succeed using `apps/web/node_modules/next`.
+- UNCONFIRMED: whether the `useSearchParams()` warnings from `react-doctor` on `project-list-placeholder.tsx` and `projects-workspace-nav.tsx` merit dedicated Suspense boundaries in a later polish pass, even though the current dynamic projects shell builds and runs successfully.
+- UNCONFIRMED: whether the initial server fetch on `/projects/[projectId]/usage` should later gain a dedicated server-side error state instead of relying on route-level failure handling for first-load upstream errors.
+- UNCONFIRMED: whether the observed `/projects` 401 screenshot came from a stale dev/browser session before both processes had reloaded the signed-assertion contract.
+- UNCONFIRMED: whether local `.env` secrets will be rotated immediately after code lands or only before the next shared/staging deployment.
+- Validation after config fix: `uv run pytest -q tests/test_control_plane_api.py::test_create_project_returns_plaintext_token tests/test_episodes_repository.py` => `4 passed`.
+- Fixed timeline time-filter normalization in `apps/mcp-api/src/viberecall_mcp/repositories/episodes.py`: `from_time/to_time` now coerce ISO string or datetime to UTC-aware `datetime` before SQL bind, preventing asyncpg `DataError` when filtering by time.
+- Implemented MCP runtime full-access mode on 2026-03-06: authenticated `free` tokens now see and call the full 11-tool surface, legacy narrow scopes no longer block tool execution, and MCP quota/rate-limit checks are bypassed while auth remains required.
+- Re-tested MCP tools on 2026-03-06: configured live endpoint `:8010` exposes all 11 tools and `viberecall_get_status` works, but `viberecall_save` failed with `Error 111 connecting to localhost:6380. Connection refused.` under the current graph-backed runtime.
+- Re-tested the same project/token against a temporary `local/local/eager` backend on `:8013`: all 11 tools passed live smoke (`save`, `search`, `get_facts`, `update_fact`, `timeline`, `get_status`, `delete_episode`, `index_repo`, `index_status`, `search_entities`, `get_context_pack`).
+- Updated repository tests in `apps/mcp-api/tests/test_episodes_repository.py` to assert normalized UTC datetime bind params.
+- Validation after fix: `uv run pytest -q tests/test_episodes_repository.py` => `3 passed`; `uv run pytest -q tests/test_mcp_tools.py::test_save_search_timeline_and_update_fact_flow tests/test_mcp_tools.py::test_upstream_bridge_mode_routes_search_facts_timeline` => `2 passed`.
+- Added backend module `apps/mcp-api/src/viberecall_mcp/code_index.py` implementing repo indexing, entity/chunk materialization, search_entities, and structured context-pack building with citations.
+- Extended MCP tool registry and runtime dispatch for new tools: `viberecall_index_repo`, `viberecall_index_status`, `viberecall_search_entities`, `viberecall_get_context_pack`.
+- Added handler implementations in `tool_handlers.py` with auth/rate-limit/plan checks and timeline evidence merge for context pack.
+- Updated tests: `tests/test_smoke.py` tool list coverage + `tests/test_mcp_tools.py` end-to-end pro flow for index/search/context-pack/status.
+- Validation run completed: `uv run pytest -q tests/test_smoke.py tests/test_mcp_tools.py` => `18 passed`.
+- Implemented MCP backend hardening pass on 2026-03-06:
+  safe local config defaults + non-dev placeholder validation,
+  `create_episode()` `reference_time` coercion,
+  merged search cursor pagination,
+  best-effort success-path audit logging,
+  `INDEX_REPO_ALLOWED_ROOTS` repo indexing restriction.
+- Added regression coverage for config validation, episode insert timestamp coercion, mixed search pagination, success-path audit failures, and index allowlist rejection.
+- Validation run completed: `uv run pytest -q tests/test_smoke.py tests/test_mcp_tools.py tests/test_episodes_repository.py tests/test_runtime_backends.py` => `31 passed`.
+- Live MCP smoke on existing `:8010` runtime no longer reproduced the old `reference_time` bind error, but remained blocked by FalkorDB connection refusal (`localhost:6380`) under current graph-backed env.
+- Live MCP smoke on temporary `:8011` local-backend runtime passed end-to-end for `viberecall_save(reference_time=...)` and paged `viberecall_search` over transport (`page1/page2` both `ok` with distinct fact ids).
+- Queried Graphiti/VibeRecall memory stores for prior auth facts, then re-verified current code paths to avoid stale history mismatch (historical Clerk entries vs current Supabase runtime).
+- Completed end-to-end auth flow audit for current web app routes: `/login` -> Supabase provider/email -> `/auth/callback` -> session cookie -> `/projects` guarded SSR reads -> `/auth/logout`.
+- Refactored web route tree to grouped App Router structure for project workspace isolation:
+  `apps/web/src/app/projects/(app-shell)/[projectId]/(workspace)/**` and `(ops)/**`, with unchanged URL surface.
+- Added `apps/web/src/app/projects/(app-shell)/layout.tsx` and simplified `ProjectsWorkspaceShell` into persistent chrome-only container.
+- Added `apps/web/src/app/projects/(app-shell)/[projectId]/(workspace)/layout.tsx` to host `ProjectDetailTabs` only for workspace routes.
+- Added new BFF usage proxy route:
+  `apps/web/src/app/api/projects/[projectId]/usage/route.ts`.
+- Added client usage card + shared project selection utility:
+  `project-plan-usage-card.tsx`, `project-selection.ts`, and wired sidebar nav to shared selection resolver.
+- Re-ran frontend validation after route/layout refactor:
+  `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, `pnpm --dir apps/web build` all passed.
+- Implemented control-plane upstream error propagation in web BFF routes for Graph Playground:
+  `apps/web/src/app/api/projects/[projectId]/graph/route.ts`,
+  `.../graph/entities/[entityId]/route.ts`,
+  `.../timeline/route.ts`,
+  with shared parser `apps/web/src/lib/api/control-plane-error.ts`.
+- Aligned local root config target to `CONTROL_PLANE_INTERNAL_SECRET=dev-control-plane-secret` in `/.env`.
+- Started local runtime dependencies from `ops/docker-compose.runtime.yml` (`falkordb`, `redis`) and verified backend health is `ok` with FalkorDB check passing.
+- Re-ran web validation after BFF error-handling hardening: `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, and `pnpm --dir apps/web build` all passed.
+- Implemented Graph Playground backend endpoints in `control_plane.py` including graph payload builder, entity detail resolver, and timeline pagination contract.
+- Fixed Graph Playground runtime SSR boundary issue by adding `graph-playground-panel-client.tsx` (dynamic import with `ssr:false`) and switching `/projects/[projectId]/graphs/playground/page.tsx` to use the wrapper.
+- Re-ran web validation after SSR-boundary fix: `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, and `pnpm --dir apps/web build` all passed.
+- Added backend control-plane test coverage for graph, entity detail, and timeline routes in `apps/mcp-api/tests/test_control_plane_api.py`.
+- Extended web API contracts and control-plane client mappings for graph/timeline/entity detail payloads.
+- Added BFF route handlers for project graph and timeline data in `apps/web/src/app/api/projects/[projectId]/**`.
+- Added new project detail routes:
+  `/projects/[projectId]/graphs/playground`,
+  `/projects/[projectId]/timeline`,
+  `/projects/[projectId]/chat`,
+  and switched project root redirect to graph playground.
+- Implemented `GraphPlaygroundPanel` client surface with Sigma graph rendering, interactive tooltips, right-panel threads/details, and export actions.
+- Added shared project detail tab navigation component and integrated it in `app/projects/[projectId]/layout.tsx`.
+- Updated sidebar navigation with `Graphs / Playground` quick access item.
+- Validation completed after implementation:
+  `uv run pytest -q` (63 passed, 2 skipped),
+  `uv run pytest -q apps/mcp-api/tests/test_control_plane_api.py` (30 passed),
+  `pnpm --dir apps/web typecheck`,
+  `pnpm --dir apps/web lint`,
+  `pnpm --dir apps/web build`.
+- Fixed `/projects` sidebar duplicate React key issue by switching nav item keying from `href` to stable item `id` in `projects-workspace-nav.tsx` and preventing disabled fallback items from being marked active.
+- Homepage header is now auth-aware again: landing header uses `LandingAuthControls` and shows signed-in status (`Projects + email/avatar pill`) after successful login.
+- Added homepage navigation on login logo: clicking `VIBERECALL` in `/login` header now routes to `/` with keyboard-focus-visible styling.
+- Polished `/login` round 2 for pixel parity + responsive behavior: topbar sizing, centered viewport composition, mobile intro block, stronger form divider/focus states, and fixed status box height to reduce layout jump.
+- Built new Pencil login frame in `/Data/UI UX.pen` (`OqZMf`) with topbar + split card + GitHub/magic-link form sections for dashboard-style parity.
+- Implemented login UI refactor in web app: added `components/login/login-screen.tsx`, rewired `app/login/page.tsx`, and restyled `components/login-actions.tsx` to dark theme while preserving auth logic.
+- Re-ran web validation after login redesign: `pnpm --dir apps/web lint`, `pnpm --dir apps/web typecheck`, and `pnpm --dir apps/web build` all passed.
+- Fixed `/projects` loading visual break reported from browser screenshot by adding `min-h-screen` to `app/projects/loading.tsx` and `min-height: 100vh` to `.vr-projects-scope`.
+- Re-ran web validation after viewport-coverage fix: `pnpm --dir apps/web lint`, `pnpm --dir apps/web typecheck`, and `pnpm --dir apps/web build` all passed.
+- Revised loading implementation to content-only mode:
+  updated `apps/web/src/app/loading.tsx`,
+  replaced `apps/web/src/app/projects/loading.tsx`,
+  and added `apps/web/src/app/projects/[projectId]/loading.tsx`.
+- Re-ran web validation after loading revision: `pnpm --dir apps/web lint`, `pnpm --dir apps/web typecheck`, and `pnpm --dir apps/web build` all passed.
+- Implemented App Router loading fallbacks: `apps/web/src/app/loading.tsx` and `apps/web/src/app/projects/loading.tsx` with skeleton-first UI and `prefers-reduced-motion` safe pulse behavior.
+- Re-ran web validation after loading implementation: `pnpm --dir apps/web lint`, `pnpm --dir apps/web typecheck`, and `pnpm --dir apps/web build` all passed.
+- Added backend endpoint `GET /api/control-plane/projects/{project_id}/usage/analytics?range=7d|30d|90d|all` with analytics aggregation (summary, trend, tool distribution, token breakdown, highlights).
+- Added frontend usage analytics contract (`UsageAnalyticsPayload` and related types) and API client method `getUsageAnalytics`.
+- Rebuilt `/projects/[projectId]/usage` to match Pencil `d3aVp`: range tabs, KPI row, trend chart, tool distribution + highlights, token usage breakdown table.
+- Added real CSV export route `GET /projects/[projectId]/usage/export` and wired `Export CSV` button to selected range.
+- Added `ProjectSwitcher` client component in header-right and removed sidebar `Project` block from `ProjectsWorkspaceNav`.
+- Added backend API test coverage for `usage/analytics` route and ran validation:
+  `uv run pytest -q tests/test_control_plane_api.py`, `pnpm --dir apps/web lint`, `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web build` all passed.
+- Removed remaining cyan accents from active `/projects` shell/dashboard (`projects-workspace-shell.tsx`, `projects-dashboard-pen.tsx`) to enforce purple-only accent emphasis.
+- Standardized retry/login/load-more buttons in projects routes (`app/projects/page.tsx`, `app/projects/[projectId]/layout.tsx`, `app/projects/[projectId]/api-logs/page.tsx`, `auth-required-card.tsx`) to the shared dark + purple token palette.
+- Re-ran web validation after the consistency pass: `pnpm --dir apps/web lint`, `pnpm --dir apps/web typecheck`, and `pnpm --dir apps/web build` all passed.
+- Added `apps/web/src/app/projects/layout.tsx` with scoped Inter font for all `/projects` routes.
+- Added `apps/web/src/app/projects/projects-theme.css` with canonical `--vr-*` design tokens for dark background, borders, typography, and accents.
+- Refactored Projects shell/nav/dashboard (`projects-workspace-shell.tsx`, `projects-workspace-nav.tsx`, `projects-dashboard-pen.tsx`) to use scoped theme tokens instead of mixed slate/legacy colors.
+- Refactored `/projects` error/auth/workspace fallback surfaces (`app/projects/page.tsx`, `app/projects/[projectId]/layout.tsx`, `components/projects/auth-required-card.tsx`) to the same dark token palette.
+- Refactored workspace tab pages and token management panel (`usage`, `billing`, `api-logs`, `tokens`, `token-panel-placeholder.tsx`) to align card/table/text colors with shared projects tokens.
+- Re-ran web validation after visual consistency pass: `pnpm --dir apps/web lint`, `pnpm --dir apps/web typecheck`, and `pnpm --dir apps/web build` all passed.
+- Replaced `/projects` route composition to render dashboard-first surface using `ProjectsDashboardPen`.
+- Added new component `apps/web/src/components/projects/projects-dashboard-pen.tsx` matching `.pen` sections: metrics, quick integration, usage chart, token management, recent API logs.
+- Updated `ProjectsWorkspaceShell` to support `view="dashboard"` and aligned sidebar/header structure to Pencil dashboard layout.
+- Updated `ProjectsWorkspaceNav` with dashboard mode nav set (`VibeTokens`, `Usage Analytics`, `Billing`, `API Logs`) and retained project selector sync behavior.
+- Added subtle global animation utilities (`vr-fade-up`, `vr-hover-lift`) with reduced-motion support.
 - Searched workspace and found the spec package under `viberecall_spec_md/`.
 - Queried graph memory for existing VibeRecall spec context; no relevant stored facts/nodes were found initially.
 - Read `README.md`, `00_overview.md`, and the core spec chapters through `09_deployment_roadmap.md`, plus appendices.
@@ -278,13 +670,82 @@
 - Re-ran web validation after color/header adjustments: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
 - Refactored `token-panel-placeholder.tsx` visual classes to dark palette, including token rows, usage boxes, export entries, maintenance blocks, and toast-result badges.
 - Added dark-styled outline button overrides and purge input overrides in tokens panel to avoid default bright UI primitives.
+- Queried graph memory and re-initialized Next.js docs (`server-and-client-components`, `css`) before landing motion polish work.
+- Implemented subtle landing animation polish across `landing-page.module.css`, `landing-hero.tsx`, `landing-sections.tsx`, `landing-header.tsx`, and `landing-footer.tsx` (ambient drift, stagger reveal, hover-lift, CTA shine, nav/footer underline, icon nudge).
+- Re-ran web validation after motion polish: `pnpm --dir apps/web lint`, `pnpm --dir apps/web typecheck`, and `pnpm --dir apps/web build` all passed.
+- Queried graph memory + Pencil source and extracted detailed copy/content nodes from `UI UX.pen` frame `7QzET` for pixel-perfect homepage sync.
+- Rewrote homepage landing modules to mirror `7QzET` structure and copy:
+  `landing-data.ts`, `landing-header.tsx`, `landing-hero.tsx`, `landing-sections.tsx`, `knowledge-graph-panel.tsx`, `landing-footer.tsx`, `landing-page.tsx`, and `landing-page.module.css`.
+- Added `next/font` tri-font setup for landing fidelity (`Inter`, `DM Mono`, `Instrument Serif`) and removed non-essential animated behaviors from the landing visual system.
+- Re-ran web validation after pixel-perfect homepage pass: `pnpm --dir apps/web lint`, `pnpm --dir apps/web typecheck`, and `pnpm --dir apps/web build` all passed.
 - Re-ran web validation after tokens panel recolor: `pnpm --filter web typecheck`, `pnpm --filter web lint`, and `pnpm --filter web build` all passed.
 - Built a Pencil draft (`pencil-new.pen`) of `/projects` dashboard structure with dark sidebar, header, projects card, and overview card for fast visual iteration.
 - Vendored Graphiti upstream source into `apps/mcp-api/vendor/graphiti` at tag `v0.28.1` and updated `uv.lock` to editable local source resolution.
 - Added backend dependency guardrail test for Graphiti source policy and ran backend validation with `44 passed, 2 skipped`.
 - Initialized root Git repository on branch `main`, staged project sources, and excluded transient local artifacts from initial commit scope.
+- Re-validated Graphiti vendor plan execution: `uv lock --check` passed, dependency policy tests passed, and full backend suite passed (`44 passed, 2 skipped`).
+- Implemented hybrid upstream Graphiti bridge modules + feature flag wiring in runtime/tool handlers/Graphiti adapter, plus regression test coverage for bridge routing path.
+- Re-ran backend validation after bridge implementation: `uv run pytest -q` passed with `45 passed, 2 skipped`.
+- Implemented MCP tools `viberecall_get_status` and `viberecall_delete_episode`, including full episode-delete flow (Postgres row + object ref cleanup + graph cleanup best-effort).
+- Re-ran backend validation after adding 2 tools: `uv run pytest -q` passed with `48 passed, 2 skipped`.
+- Fixed timeline runtime defects discovered in live HTTP checks (`AmbiguousParameterError` on null time filters and datetime serialization in response payload).
+- Added regression tests for dynamic timeline SQL, timestamp serialization, and audit-failure-safe tool error responses.
+- Re-ran backend validation after timeline/audit fixes: `uv run pytest -q` passed with `52 passed, 2 skipped`.
+- Re-ran live HTTP MCP checklist (`local/local/eager`) and confirmed all target flows pass, including timeline before/after delete and delete idempotency.
+- Implemented Graph Playground runtime fix in `graph-playground-panel.tsx`: Sigma now renders only when viewport matches desktop media query (`min-width: 1024px`).
+- Validation after fix: `pnpm --dir apps/web lint` failed due environment dependency resolution (`next/dist/compiled/babel/eslint-parser` not found), and `pnpm --dir apps/web build` failed on pre-existing TypeScript issue in `projects-workspace-nav.tsx` (`event` implicit `any`).
+- Implemented second-pass Sigma hardening: removed `lg:hidden`/`hidden lg:grid` coupling for main graph/list sections and gated section render by `isDesktopViewport`; added cleanup effect resetting hover/Sigma instance when switching to mobile.
+- Validation after hardening: `pnpm --dir apps/web build` still compiles playground changes but stops at pre-existing `projects-workspace-nav.tsx` implicit-any error; `pnpm --dir apps/web lint` still fails due local eslint parser module resolution.
+- Implemented third-pass hardening for Sigma init timing: added `sigmaMountTargetRef`, `canMountSigma`, and `ResizeObserver`-driven mount readiness effect; Sigma now mounts only when host container has real dimensions.
+- Removed temporary `allowInvalidContainer` fallback and kept the strict, deterministic fix path (state-driven section gating + measured mount readiness + coordinate safety).
+- Fixed runtime error `could not find a valid position (x, y)` by updating `nodeReducer`/`edgeReducer` to return `{ ...data, ...overrides }` instead of partial objects.
+- Added coordinate sanitation pass in `createGraphologyGraph` so invalid node coordinates are repaired before `SigmaGraphLoader` mounts graph data.
+- Fixed Sigma reducer behavior for position safety by ensuring `nodeReducer`/`edgeReducer` always return `{ ...data, ...overrides }`.
+- Re-validated web build after Sigma + nav fixes: `pnpm --dir apps/web build` now passes successfully.
+- Applied final container-height hardening: switched readiness check to `clientWidth/clientHeight`, set inline fixed height for mount host/Sigma container, and typed `projects-workspace-nav` disabled-link click event (`MouseEvent<HTMLAnchorElement>`).
+- Re-validated after final hardening: `pnpm --dir apps/web build` passes successfully (compile + typecheck + route generation).
+- Re-initialized Next.js docs context via next-devtools and consulted official docs before applying latest Graph Playground patch.
+- Implemented hybrid Sigma container-height fix in `graph-playground-panel.tsx`: readiness now checks `getBoundingClientRect` + renderable layout with `requestAnimationFrame`/`ResizeObserver`, and Sigma settings include `allowInvalidContainer: true` as defensive fallback.
+- Re-validated latest patch: `pnpm --dir apps/web typecheck` passed, `pnpm --dir apps/web build` passed, `pnpm --dir apps/web lint` still fails due local environment parser resolution (`next/dist/compiled/babel/eslint-parser` missing).
+- Verified local runtime diagnostics: Next.js MCP `get_errors` reports no active browser/runtime errors on current dev server session.
+- Implemented Graph Playground visibility stabilization pass: imported `@react-sigma/core/lib/style.css` in `app/projects/projects-theme.css`, set transparent Sigma background token, and added a post-mount visible-canvas warning in `graph-playground-panel.tsx`.
+- Re-validated visibility pass: `pnpm --dir apps/web typecheck` passed, `pnpm --dir apps/web build` passed, `pnpm --dir apps/web lint` still fails due local `eslint-config-next` parser environment issue.
 
 ## Now
+- MCP backend hardening pass is implemented in code and covered by focused tests plus live local-backend smoke validation.
+- Default `:8010` runtime remains environment-limited by FalkorDB/graph connectivity, not by the just-fixed MCP transport/repository logic.
+- 404 on `/p/<project_id>/mcp` is currently most likely due to calling the wrong process/port (typically Graphiti on `:8000` or stale env), not missing route in current `viberecall_mcp.app:create_app` code path.
+- `viberecall-local` MCP endpoint is reachable; graph-backed `:8010` still fails live search/save when FalkorDB is down, while temporary local-backend `:8011` validated the shipped transport fixes.
+- Current MCP tool health split is now explicit: implementation on current code is green (`11/11` pass on temporary `:8013`), while the configured live runtime `:8010` is still degraded by FalkorDB connectivity for write/search flows.
+- Preparing implementation handoff with exact files changed, behavior shipped, and known v1 limitations (deterministic extraction, file-backed state).
+- Preparing a concise runtime auth-flow handoff for user review and persisting this snapshot into MCP memory.
+- Sigma runtime fix policy is now hybrid: strict section gating + measured mount readiness + reducer/coordinate safety, with `allowInvalidContainer: true` defensive fallback against transient container races.
+- Awaiting user retest in live browser for the latest pass (Sigma stylesheet import + visible-canvas warning + hybrid mount safety).
+- `/projects/[projectId]/billing` no longer renders workspace secondary tabs; tabs are only visible under workspace routes (`chat`, `graphs/playground`, `timeline`, `usage`).
+- `/projects` and `/projects/[projectId]/*` now share a persistent `(app-shell)` layout, reducing full-page loading perception during cross-section navigation.
+- Projects segment loading fallback has been moved to `app/projects/(app-shell)/loading.tsx` with content-pane skeleton scope.
+- Graph Playground v1 is functional end-to-end in the existing workspace shell with real backend data.
+- Graph Playground no longer attempts to evaluate Sigma WebGL module in server rendering path under Next.js 16 Turbopack.
+- Graph Playground API proxy now surfaces actionable upstream errors (status/detail) instead of opaque 500s when control-plane fails.
+- Graphiti local runtime dependency health is currently `ok` after starting `ops` FalkorDB/Redis services.
+- UNCONFIRMED: shell-exported `CONTROL_PLANE_INTERNAL_SECRET` may override `.env` in some local sessions; ensure process env matches desired dev secret before debugging auth errors.
+- Graph interactions currently support hover tooltips, click-to-detail, node filtering, search highlighting, and double-click camera focus.
+- Right panel behavior now switches between timeline threads and entity detail based on node selection.
+- Graph refresh is polling-based (10s) with manual refresh button; realtime websocket updates are not yet implemented.
+- Entity deletion in Graph Playground remains intentionally disabled pending product confirmation and safe backend mutation design.
+- `/projects` navigation no longer emits duplicate key warnings when no project is selected or available.
+- Homepage `/` reflects login state in header controls (anonymous CTAs vs signed-in identity + Projects CTA) via Supabase client auth hydration.
+- Login topbar logo behavior is now consistent with expected navigation affordance (brand logo acts as home link).
+- `/login` desktop layout is visually closer to Pencil `OqZMf`, and mobile now has an explicit context block instead of a bare form-only presentation.
+- `/login` presents a dashboard-aligned dark auth surface with split layout and minimal chrome, while still using the same Supabase OAuth/magic-link flow.
+- Loading no longer replaces the whole page viewport: global transitions show a thin top progress indicator, and project workspace tab switches load only the content region.
+- Route transitions now have immediate fallback feedback globally, with projects-specific skeleton preserving the `/projects` dark theme during data-bound navigations.
+- Usage Analytics is now data-driven from control-plane analytics endpoint with range-based views (`7d`, `30d`, `90d`, `all`) and CSV export.
+- Project switching for workspace/dashboard routes now happens in header-right dropdown; sidebar remains focused on navigation only.
+- Active `/projects` route surfaces now use Inter typography and a consistent dark-token system with purple accents for primary emphasis across dashboard, workspace, and fallback states.
+- `/projects` and `/projects/[projectId]/*` now share one consistent visual language (Inter + `#0A0A0F` dark + purple accents) with reduced-motion entry behavior.
+- `/projects` now targets dashboard 1:1 parity with `8XfBy` while nested `/projects/[projectId]/*` tabs continue to operate as detailed workspaces.
+- Dashboard runtime on `/projects` resolves active project from query or first available project and hydrates sections from control-plane APIs with graceful fallbacks.
 - MCP backend supports local/real runtime backends with owner-scoped control-plane mutations, usage rollups, and Stripe webhook plan updates.
 - Web control-plane supports project/token lifecycle and usage visibility, plus onboarding docs at `/docs`.
 - MCP backend now includes export pipeline + signed artifact delivery from control-plane endpoints.
@@ -302,14 +763,36 @@
 - Web homepage (`/`) now reflects the Stitch "Visual Glow" UI direction with production-grade modular components and responsive behavior.
 - Temporal Edge now delivers denser visual feedback (network links, dynamic nodes, sweep) instead of sparse orbit-only placeholder visuals.
 - Landing top-right actions now differ by auth state at runtime without forcing dynamic server rendering for `/`.
+- Landing page now includes subtle motion layering (intro stagger, ambient hero drift, card hover lift, CTA micro-shine, nav/footer underline) while preserving Server Component-first rendering.
+- Landing homepage now tracks Pencil `7QzET` as the canonical visual baseline (section order, copy, typography hierarchy, pricing/FAQ/footer information architecture).
+- Landing header currently prioritizes frame fidelity (static CTA) over runtime auth-aware rendering for `/`.
 - `/projects` now visually matches Stitch E2E dashboard direction with sidebar/topbar/chart/integration/table while retaining token/export/maintenance actions end-to-end.
 - `/projects` IA is now split between a directory screen and nested project workspace tabs, matching the selected path-param navigation model.
 - Billing and API Logs tabs are now backed by live control-plane data (no \"Soon\" placeholders).
 - Sidebar remains visible on `/projects` and nested workspace routes with a unified project context selector.
 - A standalone design mock for `/projects` also exists in Pencil (`pencil-new.pen`) for quick UI direction reviews before code tweaks.
 - Graphiti source policy migration to vendored local editable path is fully implemented and validated in backend test suite.
+- Hybrid upstream Graphiti MCP customization is now implemented in internal bridge mode without breaking existing external MCP contract.
+- Public MCP tool list now remains compact while covering operations: 7 total tools with one read-only status tool and one targeted delete tool.
+- MCP live runtime validation is currently green for the selected scope: initialize/tools-list, save/search/timeline, get_status, and delete_episode with free/pro gating.
 
 ## Next
+- Restart the primary `:8010` backend under the intended runtime mode and re-check `viberecall_search/get_status` once FalkorDB availability is confirmed.
+- Decide later whether control-plane web/billing surfaces should be updated to match MCP runtime full-access semantics; current UI may still show plan/quota distinctions.
+- Rotate any secrets that were previously committed or exposed in local config/history outside this patch set.
+- Add optional database-backed index persistence and job tracking once migration window is approved (replace/augment `.viberecall` file-backed state).
+- Add richer relationship extraction (`CALLS`, `READS_TABLE`, `WRITES_TABLE`) and confidence-scored semantic extraction pass.
+- Add offline retrieval quality eval harness (hit@k, citation coverage) and p95 latency assertions for `viberecall_get_context_pack`.
+- If auth provider migration is requested, define an explicit Supabase -> Clerk cutover plan (proxy/provider/routes/session semantics) before implementation.
+- Repair local web lint baseline (`eslint-config-next` parser module resolution) so `pnpm --dir apps/web lint` can pass consistently in this environment.
+- Verify runtime UX in browser for route-group split (`/projects`, `/projects/[projectId]/graphs/playground`, `/projects/[projectId]/billing`) and capture before/after screenshots for regression record.
+- If needed, extract project header into dedicated component and add shared server data cache wrapper to reduce duplicated `getProjectsBaseData` calls across nested layouts/pages.
+- Add optional websocket/subscription-based graph auto-refresh to replace fixed 10-second polling.
+- Improve graph performance controls for very large memories (server-side cursor/load-more beyond static max limits).
+- Define and implement safe entity deletion semantics (soft-delete vs fact-level invalidation) before enabling destructive UI action.
+- Add richer timeline pivoting from entity panel (deep links by episode/fact/time filter).
+- Validate `/login` on small breakpoints and decide whether to create a mobile-specific Pencil frame before further polish.
+- Consider adding deeper per-segment loading override at `app/projects/[projectId]/loading.tsx` only if product requests finer skeleton parity for workspace sub-tabs.
 - Add deployment workflow details (staging/prod secrets, release gates, backup/restore drills) to match Day 6 launch hardening.
 - Evaluate whether runtime e2e Celery should be conditionally integrated into CI (nightly/manual workflow) without destabilizing default PR checks.
 - Add deployment runbook automation for backup/restore drills (Neo4j dump to object storage, retention policy checks).
@@ -321,9 +804,12 @@
 - If needed, parse exported `screen.html` into App Router sections/components for production landing implementation.
 - Replace placeholder external links (`GitHub`, `Contact Sales`, footer legal links) with canonical URLs once legal/repo endpoints are finalized.
 - Consider adding an explicit `Sign out` action to the landing header profile pill if product flow requires direct logout from `/`.
+- Gather product feedback on landing motion intensity; if needed, tune durations/delays downward or move selected reveals to viewport-triggered animation.
+- If product requires auth-aware CTA on `/`, decide whether to keep pixel-perfect static header or re-introduce client auth controls as an intentional design deviation.
 - Consider adding filter/search controls for API logs tab (`status`, `action`, time range`) if operator workflows require faster triage.
 - Consider adding an off-canvas mobile sidebar for `/projects` since the current sidebar remains `xl`-only.
 
 ## Open questions
+- UNCONFIRMED: `viberecall_get_status` currently depends on backend-specific detail logic; should it always include an explicit dependency probe summary so graph connectivity failures are visible before first tool call?
 - UNCONFIRMED: Should tenant isolation text in the spec be normalized later from `graph_name` to `db_name` everywhere?
 - UNCONFIRMED: Should vector search be enabled by default in the eventual Neo4j implementation, or kept behind a feature flag?

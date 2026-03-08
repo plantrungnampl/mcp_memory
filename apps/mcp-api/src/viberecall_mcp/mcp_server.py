@@ -22,10 +22,7 @@ def build_initialize_result() -> dict:
 
 
 def list_tools_result(plan: str | None = None) -> dict:
-    tools = get_tool_definitions()
-    if plan is not None:
-        tools = filter_tools_for_plan(plan, tools)
-    return {"tools": tools}
+    return {"tools": filter_tools_for_plan(plan or "free", get_tool_definitions())}
 
 
 def tool_error(request_id: str, code: str, message: str, details: dict | None = None) -> dict:

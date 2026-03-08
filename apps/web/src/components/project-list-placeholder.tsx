@@ -1,16 +1,20 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FolderKanban, Plus } from "lucide-react";
 
 import type { ProjectActionState } from "@/app/projects/action-types";
+import { PROJECT_STORAGE_KEY } from "@/components/projects/project-selection";
 import type { PlanName, ProjectSummary } from "@/lib/api/types";
+import { projectQueryKeys } from "@/lib/query/keys";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ProjectCreatedMcpModal } from "@/components/projects/project-created-mcp-modal";
 
 type ProjectListPlaceholderProps = {
   projects: ProjectSummary[];
@@ -26,8 +30,16 @@ const INITIAL_STATE: ProjectActionState = {
   message: null,
   nonce: null,
   projectId: null,
+  connectionEndpoint: null,
   tokenPlaintext: null,
   tokenPrefix: null,
+};
+
+type CreatedProjectMcpData = {
+  nonce: string;
+  projectId: string;
+  endpoint: string;
+  tokenPlaintext: string;
 };
 
 const PLAN_STYLES: Record<PlanName, string> = {
@@ -42,14 +54,58 @@ export function ProjectListPlaceholder({
   createProjectAction,
 }: ProjectListPlaceholderProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const [state, formAction, pending] = useActionState(createProjectAction, INITIAL_STATE);
+  const handledNonceRef = useRef<string | null>(null);
+  const [dismissedNonce, setDismissedNonce] = useState<string | null>(null);
+
+  const createdProjectMcpData = useMemo<CreatedProjectMcpData | null>(() => {
+    if (
+      !state.ok ||
+      !state.nonce ||
+      !state.projectId ||
+      !state.connectionEndpoint ||
+      !state.tokenPlaintext
+    ) {
+      return null;
+    }
+
+    return {
+      nonce: state.nonce,
+      projectId: state.projectId,
+      endpoint: state.connectionEndpoint,
+      tokenPlaintext: state.tokenPlaintext,
+    };
+  }, [
+    state.connectionEndpoint,
+    state.nonce,
+    state.ok,
+    state.projectId,
+    state.tokenPlaintext,
+  ]);
 
   useEffect(() => {
-    if (state.ok && state.projectId) {
-      router.push(`/projects/${state.projectId}/tokens`);
-      router.refresh();
+    if (!createdProjectMcpData) {
+      return;
     }
-  }, [router, state.ok, state.projectId, state.nonce]);
+    if (handledNonceRef.current === createdProjectMcpData.nonce) {
+      return;
+    }
+    handledNonceRef.current = createdProjectMcpData.nonce;
+
+    void queryClient.invalidateQueries({
+      queryKey: projectQueryKeys.directory(),
+    });
+
+    window.localStorage.setItem(PROJECT_STORAGE_KEY, createdProjectMcpData.projectId);
+
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    nextSearchParams.set("project", createdProjectMcpData.projectId);
+    const nextQuery = nextSearchParams.toString();
+    window.history.replaceState(null, "", nextQuery ? `${pathname}?${nextQuery}` : pathname);
+  }, [createdProjectMcpData, pathname, queryClient, searchParams]);
 
   return (
     <Card className="border-[#7a2dbe]/30 bg-[#120e1d]/78 text-slate-100">
@@ -87,12 +143,6 @@ export function ProjectListPlaceholder({
           </div>
           {state.message ? (
             <p className="text-xs text-slate-300">{state.message}</p>
-          ) : null}
-          {state.ok && state.tokenPlaintext ? (
-            <div className="rounded-xl border border-emerald-300/40 bg-emerald-900/25 px-3 py-2">
-              <p className="text-xs font-medium text-emerald-200">Copy token now (shown once)</p>
-              <p className="mt-1 font-mono text-xs text-emerald-100">{state.tokenPlaintext}</p>
-            </div>
           ) : null}
         </form>
 
@@ -137,6 +187,20 @@ export function ProjectListPlaceholder({
           </div>
         )}
       </CardContent>
+
+      {createdProjectMcpData && createdProjectMcpData.nonce !== dismissedNonce ? (
+        <ProjectCreatedMcpModal
+          endpoint={createdProjectMcpData.endpoint}
+          onClose={() => setDismissedNonce(createdProjectMcpData.nonce)}
+          onOpenProject={() => {
+            router.push(`/projects/${createdProjectMcpData.projectId}/tokens`);
+            setDismissedNonce(createdProjectMcpData.nonce);
+          }}
+          open
+          projectId={createdProjectMcpData.projectId}
+          tokenPlaintext={createdProjectMcpData.tokenPlaintext}
+        />
+      ) : null}
     </Card>
   );
 }

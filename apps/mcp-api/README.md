@@ -2,6 +2,20 @@
 
 FastAPI and FastMCP backend bootstrap for VibeRecall.
 
+## MCP tools (public)
+
+- `viberecall_save`
+- `viberecall_search`
+- `viberecall_get_facts`
+- `viberecall_update_fact`
+- `viberecall_timeline`
+- `viberecall_get_status`
+- `viberecall_delete_episode`
+- `viberecall_index_repo`
+- `viberecall_index_status`
+- `viberecall_search_entities`
+- `viberecall_get_context_pack`
+
 ## Graphiti source policy
 
 - Canonical dependency source uses vendored Graphiti source at `apps/mcp-api/vendor/graphiti` via `tool.uv.sources` local editable path.
@@ -24,15 +38,23 @@ uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
 
 ## Runtime notes
 
+- MCP runtime is currently full-access for any valid bearer token:
+  - `tools/list` returns the full public toolset for all authenticated users.
+  - Runtime plan, scope, rate-limit, and quota gates are bypassed for MCP tool calls.
+  - Token validity, expiry, revocation, and project binding are still enforced.
+- Control-plane plan/billing metadata still exists outside MCP runtime and may continue to show `free|pro|team`.
 - Backend config reads the repository root `/.env` by default; if it does not exist, it falls back to `apps/mcp-api/.env`.
+- Process-level environment variables override `.env`. If you previously exported `FALKORDB_HOST`, `FALKORDB_PORT`, `MEMORY_BACKEND`, or queue/KV vars in your shell, the running process may ignore values from `/.env`.
 - Runtime backend selection is explicit:
-  - `MEMORY_BACKEND=local|neo4j|graphiti`
+  - `MEMORY_BACKEND=local|falkordb|graphiti`
   - `KV_BACKEND=local|redis`
   - `QUEUE_BACKEND=eager|celery`
 - Graphiti runtime settings:
   - `GRAPHITI_API_KEY` is required to enable Graphiti sync.
   - `GRAPHITI_LLM_MODEL` defaults to `gpt-4.1-mini`.
   - `GRAPHITI_EMBEDDER_MODEL` defaults to `text-embedding-3-small`.
+  - `GRAPHITI_MCP_BRIDGE_MODE=legacy|upstream_bridge` (default `legacy`).
+  - `upstream_bridge` keeps `viberecall_*` public tool contract but uses upstream Graphiti MCP-style bridge internally for search/facts/timeline paths.
   - `GRAPHITI_TELEMETRY_ENABLED=false` is recommended for local development.
 - Raw episode storage rule (spec v0.1):
   - `RAW_EPISODE_INLINE_MAX_BYTES` (default `65536`): save inline in Postgres when below/equal threshold.
@@ -43,60 +65,163 @@ uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
   - For `r2`: set `OBJECT_BUCKET`, `OBJECT_ENDPOINT`, `OBJECT_REGION`, `OBJECT_ACCESS_KEY_ID`, `OBJECT_SECRET_ACCESS_KEY`
 - Inline migration gate:
   - `INLINE_MIGRATION_DB_SIZE_THRESHOLD_BYTES` controls when `migrate_inline_to_object` auto-run should be allowed unless forced.
-- Control-plane HTTP routes require internal headers from the web BFF:
-  - `X-Control-Plane-Secret` (must match `CONTROL_PLANE_INTERNAL_SECRET`)
-  - `X-Control-Plane-User-Id`
+- Code indexing safety:
+  - `INDEX_REPO_ALLOWED_ROOTS` is an optional comma-separated allowlist for `viberecall_index_repo`.
+  - When unset or blank, indexing is limited to the monorepo root by default.
+  - To index another local repo in development, add its absolute path to `INDEX_REPO_ALLOWED_ROOTS`.
+- Control-plane HTTP routes require an internal signed assertion from the web BFF:
+  - `X-Control-Plane-Assertion`
+  - `X-Request-Id`
+  - The assertion is HMAC-signed with `CONTROL_PLANE_INTERNAL_SECRET` and carries the authenticated user identity in a short-lived payload.
+  - The backend echoes `X-Request-Id` on responses so web/runtime logs can be correlated without logging the raw assertion.
 - Stripe webhook endpoint is available at `/api/control-plane/stripe/webhook` and validates `Stripe-Signature` using `STRIPE_WEBHOOK_SECRET`.
 - Stripe webhook processing is idempotent by `event.id` via `webhooks` table (migration `004_webhooks.sql`) and supports retry of previously failed events.
 - Local lightweight mode uses `local/local/eager`.
-- Real local-services mode uses `neo4j/redis/eager`.
-- Production mode uses `neo4j/redis/celery`.
+- Real local-services mode uses `falkordb/redis/eager`.
+- Production mode uses `falkordb/redis/celery`.
 
-## Run with local Neo4j + Redis
+### Troubleshooting stale env in running process
+
+```bash
+# Check effective env of current uvicorn process
+PID="$(pgrep -f 'uvicorn viberecall_mcp.app:create_app' | head -n 1)"
+tr '\0' '\n' < "/proc/${PID}/environ" | rg '^FALKORDB_HOST=|^FALKORDB_PORT=|^MEMORY_BACKEND=|^KV_BACKEND=|^QUEUE_BACKEND='
+
+# Restart backend with root .env loaded explicitly
+cd apps/mcp-api
+set -a
+source ../../.env
+set +a
+uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
+
+# Restart the Next.js dev server too after auth contract / secret changes
+cd ../web
+pnpm dev
+```
+
+### Troubleshooting `Missing control-plane assertion`
+
+- Restart both the Next.js dev server and `uvicorn --reload` after changing:
+  - `CONTROL_PLANE_INTERNAL_SECRET`
+  - internal control-plane auth headers/contracts
+- Hard refresh the browser and sign in again if the page still shows a stale workspace/auth error.
+- Use the echoed `X-Request-Id` / UI request id to correlate:
+  - web server logs for `control_plane_request_*`
+  - backend logs for `control_plane_auth_*`
+
+## Run with local FalkorDB + Redis
 
 ```bash
 docker compose -f ../../ops/docker-compose.runtime.yml up -d
-MEMORY_BACKEND=neo4j KV_BACKEND=redis QUEUE_BACKEND=eager \
+MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=eager \
 uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
 ```
+
+## Run with current local `.env` defaults (`graphiti + eager + local KV`)
+
+```bash
+# terminal 1: required graph dependency
+docker compose -f ../../ops/docker-compose.runtime.yml up -d
+
+# terminal 2: backend (loads repository root .env automatically)
+uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
+
+# terminal 3: required post-start checks
+curl http://localhost:8010/healthz
+```
+
+Expected startup checks before using `viberecall-local`:
+
+- `/healthz` returns `"status": "ok"` and `checks.falkordb.status = "ok"`.
+- `viberecall_get_status` returns `"status": "ok"`.
+- If `/healthz` is `degraded` with `localhost:6380`, FalkorDB is not available and graph-backed MCP tools like `viberecall_save`, `viberecall_search`, and `viberecall_timeline` will fail fast.
+- `GRAPHITI_MCP_BRIDGE_MODE=legacy|upstream_bridge` does not remove the FalkorDB dependency for canonical save/search/facts/timeline paths when `MEMORY_BACKEND=graphiti`.
+
+### Troubleshooting stale MCP sessions
+
+- `POST /p/<project_id>/mcp` returning `404` with `Session not found` means the client sent an unknown or expired `mcp-session-id`.
+- The backend is stateful for Streamable HTTP. Requests that omit the session header create a fresh session; requests with a stale session id are rejected.
+- Common trigger: the MCP client keeps an old session alive after `uvicorn --reload`, backend restart, or other transport reset.
+- Fix on the client side: reconnect or restart the MCP client so it runs `initialize` again and obtains a fresh `mcp-session-id`.
+- `GET /p/<project_id>/mcp` returning `406 Not Acceptable` means the client did not advertise the required MCP media types. Streamable HTTP requests must accept both `application/json` and `text/event-stream`.
 
 ## Run worker
 
 ```bash
-MEMORY_BACKEND=neo4j KV_BACKEND=redis QUEUE_BACKEND=celery \
+MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=celery \
 uv run celery -A viberecall_mcp.workers.celery_app worker -l info
 ```
 
-## Runtime integration tests (Neo4j + Redis)
+## Production container surface
+
+- Repository root now includes `.env.production.example` plus `ops/docker-compose.production.yml`.
+- Default public-GA runtime shape is:
+  - `MEMORY_BACKEND=falkordb`
+  - `KV_BACKEND=redis`
+  - `QUEUE_BACKEND=celery`
+- Start the full production-shaped stack from the repository root:
+
+```bash
+cp .env.production.example .env.production
+docker compose -f ops/docker-compose.production.yml --env-file .env.production up --build
+```
+
+- Expected services:
+  - `web` on `3000`
+  - `api` on `8010`
+  - `worker` consuming Celery queue `memory`
+  - `redis`
+  - `falkordb`
+- Postgres remains external and must be provided through `DATABASE_URL`.
+- For the paired Next.js container, keep `DEPLOYMENT_VERSION` fixed per release and provide a stable `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` across all web instances.
+- For public production, also set:
+  - `PUBLIC_WEB_URL`
+  - `PUBLIC_MCP_BASE_URL`
+  - `ALLOWED_ORIGINS`
+  - `NEXT_PUBLIC_MCP_BASE_URL` on the web deployment
+
+## Deployed MCP smoke
+
+After deploying the API, verify the public MCP transport with:
+
+```bash
+pnpm smoke:mcp:deployed -- \
+  --base-url https://api.example.com \
+  --project-id <project_id> \
+  --token <plaintext_mcp_token>
+```
+
+This validates session initialization, auth, read-path tools, write-path tools, and cleanup on the deployed endpoint.
+
+## Runtime integration tests (FalkorDB + Redis)
 
 ```bash
 RUN_RUNTIME_INTEGRATION=1 uv run pytest tests/test_runtime_integration.py -q
 ```
 
-## Runtime E2E test (Neo4j + Redis + Celery worker)
+## Runtime E2E test (FalkorDB + Redis + Celery worker)
 
 ```bash
 # terminal 1: local services
 docker compose -f ../../ops/docker-compose.runtime.yml up -d
 
 # terminal 2: celery worker
-MEMORY_BACKEND=neo4j KV_BACKEND=redis QUEUE_BACKEND=celery \
+MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=celery \
 uv run celery -A viberecall_mcp.workers.celery_app worker -l warning -Q memory --pool=solo --concurrency=1
 
 # terminal 3: run opt-in e2e test
-RUN_RUNTIME_E2E_CELERY=1 MEMORY_BACKEND=neo4j KV_BACKEND=redis QUEUE_BACKEND=celery \
+RUN_RUNTIME_E2E_CELERY=1 MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=celery \
 uv run pytest tests/test_runtime_e2e_celery.py -q
 ```
 
-If the test times out, verify Redis/Neo4j availability and that the worker process is connected to the same broker/result backend.
+If the test times out, verify Redis/FalkorDB availability and that the worker process is connected to the same broker/result backend.
 
 ## Trigger inline-content migration
 
 ```bash
 curl -X POST "http://localhost:8010/api/control-plane/projects/<project_id>/migrate-inline-to-object" \
   -H "Content-Type: application/json" \
-  -H "X-Control-Plane-Secret: dev-control-plane-secret" \
-  -H "X-Control-Plane-User-Id: user_demo" \
+  -H "X-Control-Plane-Assertion: <signed-assertion-from-web-bff>" \
   -d '{"force": true}'
 ```
 

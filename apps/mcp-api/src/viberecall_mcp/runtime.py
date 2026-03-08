@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
+from time import monotonic
+from urllib.parse import urlsplit
 
 from viberecall_mcp.config import get_settings
+from viberecall_mcp.graphiti_upstream_bridge import UpstreamGraphitiBridge
 from viberecall_mcp.idempotency import LocalIdempotencyStore
 from viberecall_mcp.idempotency_redis import RedisIdempotencyStore
 from viberecall_mcp.ids import new_id
@@ -10,8 +14,8 @@ from viberecall_mcp.metrics import queue_depth
 from viberecall_mcp.memory_core.graphiti_adapter import GraphitiMemoryCore
 from viberecall_mcp.memory_core.interface import MemoryCore
 from viberecall_mcp.memory_core.local_adapter import LocalMemoryCore
-from viberecall_mcp.memory_core.neo4j_adapter import Neo4jMemoryCore
-from viberecall_mcp.memory_core.neo4j_admin import Neo4jDatabaseManager
+from viberecall_mcp.memory_core.falkordb_adapter import FalkorDBMemoryCore
+from viberecall_mcp.memory_core.falkordb_admin import FalkorDBGraphManager
 from viberecall_mcp.rate_limit import LocalRateLimiter
 from viberecall_mcp.rate_limit_redis import RedisRateLimiter
 from viberecall_mcp.redis_client import get_redis_client
@@ -162,6 +166,24 @@ class EagerTaskQueue:
             queue_depth.labels(queue="maintenance").dec()
         return job_id
 
+    async def enqueue_index_repo(
+        self,
+        *,
+        index_id: str,
+        project_id: str,
+        request_id: str,
+        token_id: str | None,
+    ) -> str:
+        from viberecall_mcp.workers import tasks
+
+        job_id = new_id("job_index")
+        queue_depth.labels(queue="indexing").inc()
+        try:
+            await tasks.run_index_job(index_id=index_id)
+        finally:
+            queue_depth.labels(queue="indexing").dec()
+        return job_id
+
 
 @dataclass(slots=True)
 class CeleryTaskQueue:
@@ -254,12 +276,26 @@ class CeleryTaskQueue:
         task = migrate_inline_to_object_task.delay(project_id, request_id, token_id, force)
         return str(task.id)
 
+    async def enqueue_index_repo(
+        self,
+        *,
+        index_id: str,
+        project_id: str,
+        request_id: str,
+        token_id: str | None,
+    ) -> str:
+        from viberecall_mcp.workers.tasks import index_repo_task
+
+        task = index_repo_task.delay(index_id, project_id, request_id, token_id)
+        return str(task.id)
+
 
 settings = get_settings()
-_neo4j_admin = Neo4jDatabaseManager()
+_falkordb_admin = FalkorDBGraphManager()
 _local_memory_core = LocalMemoryCore()
-_neo4j_memory_core = Neo4jMemoryCore(_neo4j_admin)
-_graphiti_memory_core = GraphitiMemoryCore(_neo4j_admin)
+_falkordb_memory_core = FalkorDBMemoryCore(_falkordb_admin)
+_graphiti_memory_core = GraphitiMemoryCore(_falkordb_admin)
+_graphiti_upstream_bridge = UpstreamGraphitiBridge(_falkordb_admin)
 _local_idempotency_store = LocalIdempotencyStore()
 _redis_idempotency_store = RedisIdempotencyStore(get_redis_client())
 _local_rate_limiter = LocalRateLimiter()
@@ -268,12 +304,82 @@ _eager_task_queue = EagerTaskQueue()
 _celery_task_queue = CeleryTaskQueue()
 
 
+@dataclass(slots=True)
+class _DependencyProbeCacheEntry:
+    fingerprint: tuple[str, ...]
+    value: dict
+    expires_at_monotonic: float
+
+
+_dependency_probe_cache: _DependencyProbeCacheEntry | None = None
+
+
+def _sanitize_falkordb_target(host: str, port: int) -> str:
+    try:
+        parsed = urlsplit(f"redis://{host}:{port}")
+        target_host = parsed.hostname or host or "unknown"
+        target_port = parsed.port or port
+        return f"{target_host}:{target_port}"
+    except Exception:  # noqa: BLE001
+        return f"{host}:{port}"
+
+
+def _dependency_probe_fingerprint() -> tuple[str, ...]:
+    return (
+        settings.memory_backend,
+        settings.kv_backend,
+        settings.queue_backend,
+        settings.falkordb_host,
+        str(settings.falkordb_port),
+        settings.falkordb_username,
+        settings.falkordb_password,
+    )
+
+
+def _cached_dependency_state() -> dict | None:
+    global _dependency_probe_cache
+
+    entry = _dependency_probe_cache
+    if entry is None:
+        return None
+    if entry.fingerprint != _dependency_probe_fingerprint():
+        _dependency_probe_cache = None
+        return None
+    if monotonic() >= entry.expires_at_monotonic:
+        _dependency_probe_cache = None
+        return None
+    return deepcopy(entry.value)
+
+
+def _store_dependency_state(value: dict) -> dict:
+    global _dependency_probe_cache
+
+    ttl_seconds = (
+        settings.dependency_probe_cache_ok_ttl_seconds
+        if value.get("status") == "ok"
+        else settings.dependency_probe_cache_error_ttl_seconds
+    )
+    ttl_seconds = max(0.0, float(ttl_seconds))
+    stored_value = deepcopy(value)
+    _dependency_probe_cache = _DependencyProbeCacheEntry(
+        fingerprint=_dependency_probe_fingerprint(),
+        value=stored_value,
+        expires_at_monotonic=monotonic() + ttl_seconds,
+    )
+    return deepcopy(stored_value)
+
+
 def get_memory_core() -> MemoryCore:
-    if settings.memory_backend == "graphiti":
+    backend = settings.memory_backend
+    if backend == "graphiti":
         return _graphiti_memory_core
-    if settings.memory_backend == "neo4j":
-        return _neo4j_memory_core
+    if backend == "falkordb":
+        return _falkordb_memory_core
     return _local_memory_core
+
+
+def get_graphiti_upstream_bridge() -> UpstreamGraphitiBridge:
+    return _graphiti_upstream_bridge
 
 
 def get_idempotency_store() -> IdempotencyStore:
@@ -294,9 +400,76 @@ def get_task_queue() -> TaskQueue:
     return _eager_task_queue
 
 
+def build_graph_dependency_detail(
+    dependency_state: dict,
+    *,
+    fallback_detail: str | None = None,
+) -> str:
+    falkordb_detail = dependency_state.get("checks", {}).get("falkordb", {}).get("detail")
+    backend = dependency_state.get("runtime", {}).get("memory_backend", "unknown")
+    detail = falkordb_detail or fallback_detail
+    detail_suffix = f": {detail}" if detail else ""
+    return f"Graph dependency check failed for memory backend '{backend}'{detail_suffix}"
+
+
+async def get_graph_dependency_failure_detail() -> str | None:
+    if settings.memory_backend not in {"falkordb", "graphiti"}:
+        return None
+
+    dependency_state = await probe_runtime_dependencies()
+    if dependency_state["status"] == "ok":
+        return None
+    return build_graph_dependency_detail(dependency_state)
+
+
+async def probe_runtime_dependencies() -> dict:
+    cached = _cached_dependency_state()
+    if cached is not None:
+        return cached
+
+    memory_backend = settings.memory_backend
+    checks = {
+        "falkordb": {
+            "status": "skipped",
+            "detail": "FalkorDB is not required for local memory backend.",
+        }
+    }
+
+    if memory_backend in {"falkordb", "graphiti"}:
+        try:
+            await _falkordb_admin.verify_connectivity()
+            checks["falkordb"] = {
+                "status": "ok",
+                "detail": "FalkorDB connection is healthy.",
+            }
+        except Exception as exc:  # noqa: BLE001
+            checks["falkordb"] = {
+                "status": "error",
+                "detail": str(exc).strip() or "FalkorDB connectivity check failed.",
+            }
+
+    status = "degraded" if any(check["status"] == "error" for check in checks.values()) else "ok"
+    return _store_dependency_state(
+        {
+        "status": status,
+        "runtime": {
+            "memory_backend": memory_backend,
+            "kv_backend": settings.kv_backend,
+            "queue_backend": settings.queue_backend,
+            "falkordb_target": _sanitize_falkordb_target(settings.falkordb_host, settings.falkordb_port),
+        },
+        "checks": checks,
+        }
+    )
+
+
 async def reset_runtime_state() -> None:
+    global _dependency_probe_cache
+
     if settings.memory_backend == "local":
         await _local_memory_core.reset()
     if settings.kv_backend == "local":
         await _local_idempotency_store.reset()
         await _local_rate_limiter.reset()
+    await _graphiti_upstream_bridge.close()
+    _dependency_probe_cache = None

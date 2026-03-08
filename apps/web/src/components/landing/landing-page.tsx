@@ -1,5 +1,3 @@
-import { Inter } from "next/font/google";
-
 import { cn } from "@/lib/utils";
 
 import { LandingFooter } from "./landing-footer";
@@ -8,11 +6,14 @@ import { LandingHero } from "./landing-hero";
 import styles from "./landing-page.module.css";
 import { LandingSections } from "./landing-sections";
 
-const landingFont = Inter({ subsets: ["latin"] });
-
 export function LandingPage() {
   return (
-    <div className={cn(landingFont.className, styles.landingRoot, "min-h-screen text-slate-100")}>
+    <div
+      className={cn(
+        styles.landingRoot,
+        "min-h-screen text-slate-100",
+      )}
+    >
       <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden">
         <LandingHeader />
         <main className="flex-1">
