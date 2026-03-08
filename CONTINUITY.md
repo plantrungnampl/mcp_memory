@@ -16,6 +16,7 @@
 - Keep the `/projects` directory rollout scoped to shared read-model caching and shallow URL-state updates; do not broaden this pass into app-shell server cache dedup or project-route restructuring.
 
 ## Key decisions
+- Root `README.md` is now being rewritten as an English, hybrid public+ops entrypoint: product overview first, accurate onboarding/deployment second, with deep runtime details linked out to app-specific docs instead of duplicated at the root.
 - Public-GA hosting is now standardized as Vercel for `apps/web` and Render for the MCP runtime; the repo carries `render.yaml` for API/worker/FalkorDB plus an explicit runbook instead of leaving platform shape implicit.
 - The production env contract now distinguishes browser MCP base URL (`NEXT_PUBLIC_MCP_BASE_URL`) from backend-generated canonical MCP URL (`PUBLIC_MCP_BASE_URL`) and also requires API-side `PUBLIC_WEB_URL` plus `ALLOWED_ORIGINS` for deployed browser traffic.
 - Deployed MCP validation is now a first-class release step via `pnpm smoke:mcp:deployed`, which exercises session initialize, tools/list, read/write tool calls, and cleanup against a public MCP endpoint.
@@ -177,6 +178,7 @@
 - MCP tool success path now treats audit logging as best-effort so observability failures do not corrupt successful tool responses.
 
 ## State
+- Root `README.md` has been rewritten into a professional project homepage/onboarding document that now covers product overview, architecture, repo layout, quick start, env groups, MCP quickstart, validation, deployment, documentation map, and troubleshooting.
 - Public rollout artifacts are now in-repo on 2026-03-08: `render.yaml`, `ops/render/falkordb/Dockerfile`, `ops/vercel-render-public-ga.md`, and `apps/mcp-api/scripts/smoke_deployed_mcp.py` define the Vercel + Render production-candidate path.
 - Production env alignment is now fixed: `.env.production.example`, `.env.example`, `apps/web/Dockerfile`, and `ops/docker-compose.production.yml` all carry `NEXT_PUBLIC_MCP_BASE_URL`, while deployed API docs now require `PUBLIC_WEB_URL` and `ALLOWED_ORIGINS`.
 - Repo-level release validation is now fully confirmed from the current workspace: `pnpm validate:web` passed and `pnpm test:backend` passed with `108 passed, 2 skipped`.
@@ -354,6 +356,7 @@
 - Fixed MCP endpoint default base URL mismatch: `public_mcp_base_url` default changed to `http://localhost:8010` (was `:8000`) in `apps/mcp-api/src/viberecall_mcp/config.py` to align with runtime/docs and avoid generated `/p/{project_id}/mcp` endpoints pointing to wrong port.
 
 ## Now
+- The current docs pass is complete from a content/consistency standpoint: the rewritten root README has already been checked against current commands, env contracts, and linked docs.
 - The repo is at a production-candidate state: release gates are green and the deploy/runbook surface for Vercel + Render is implemented, but the remaining work is platform provisioning plus authenticated QA on the deployed domains.
 - The current rollout blocker is no longer code or local validation; it is the external final mile: create the Vercel/Render services, wire real secrets/domains, seed a dedicated QA project/token, and run browser checks as a signed-in user.
 - Current release posture is production-candidate hardening: web and backend release gates are green, and the remaining launch work is deployed authenticated QA on key `/projects` surfaces.
@@ -374,6 +377,7 @@
 - MCP delete semantics are now stable for new writes under the current Graphiti/FalkorDB runtime; the remaining caveat is that already-orphaned legacy facts without recoverable provenance are not backfilled in this pass.
 
 ## Next
+- If desired, commit the rewritten root README as the canonical repo entrypoint and push the docs refresh with the next documentation or release-prep batch.
 - Provision the actual Vercel project (`apps/web` root directory) and Render services (`viberecall-api`, `viberecall-worker`, `viberecall-falkordb`, plus Render Key Value), then inject the real production env values from the new contract.
 - Run `pnpm smoke:mcp:deployed -- --base-url https://api.<domain> --project-id <project_id> --token <plaintext_mcp_token>` against the deployed MCP endpoint and keep the output as release evidence.
 - Run the authenticated browser pass on `/projects`, `/projects/[projectId]/tokens`, `/projects/[projectId]/api-logs`, `/projects/[projectId]/usage`, and `/projects/[projectId]/graphs/playground` against `https://app.<domain>`.
