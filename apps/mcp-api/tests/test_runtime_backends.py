@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import text
 
 from viberecall_mcp import code_index
@@ -281,16 +282,22 @@ async def test_code_index_snapshot_persists_text_arrays_for_asyncpg() -> None:
                     "isolation_mode": "falkordb_graph",
                 },
             )
-            await code_index._insert_index_run(
-                session,
-                index_id=index_id,
-                project_id=project_id,
-                repo_path=str(repo_path),
-                mode="snapshot",
-                base_ref=None,
-                head_ref=None,
-                max_files=100,
-                requested_by_token_id=None,
+            await session.execute(
+                text(
+                    """
+                    insert into code_index_runs (
+                        index_id, project_id, repo_path, mode, status, phase
+                    ) values (
+                        :index_id, :project_id, :repo_path, :mode, 'READY', 'ready'
+                    )
+                    """
+                ),
+                {
+                    "index_id": index_id,
+                    "project_id": project_id,
+                    "repo_path": str(repo_path),
+                    "mode": "snapshot",
+                },
             )
             await code_index._store_materialized_snapshot(
                 session,
@@ -316,5 +323,54 @@ async def test_code_index_snapshot_persists_text_arrays_for_asyncpg() -> None:
             )
             assert any(chunk["entity_id"].startswith("symbol:demo.py:handle_index_repo:1") for chunk in chunks)
         finally:
+            await session.execute(text("delete from code_index_runs where index_id = :index_id"), {"index_id": index_id})
             await session.execute(text("delete from projects where id = :project_id"), {"project_id": project_id})
             await session.commit()
+
+
+def test_normalize_repo_source_rejects_unknown_git_credential_ref(monkeypatch) -> None:
+    monkeypatch.setattr(code_index.settings, "index_git_credential_refs_json", '{"known":{"allowed_hosts":["github.com"],"token":"secret"}}')
+    with pytest.raises(ValueError, match="Unknown git credential_ref"):
+        code_index.normalize_repo_source(
+            {
+                "type": "git",
+                "remote_url": "https://github.com/acme/repo.git",
+                "ref": "main",
+                "credential_ref": "missing",
+            }
+        )
+
+
+def test_normalize_repo_source_rejects_host_mismatch_for_git_credential_ref(monkeypatch) -> None:
+    monkeypatch.setattr(code_index.settings, "index_git_credential_refs_json", '{"known":{"allowed_hosts":["github.com"],"token":"secret"}}')
+    with pytest.raises(ValueError, match="is not allowed for host"):
+        code_index.normalize_repo_source(
+            {
+                "type": "git",
+                "remote_url": "https://gitlab.com/acme/repo.git",
+                "ref": "main",
+                "credential_ref": "known",
+            }
+        )
+
+
+async def test_run_index_job_wrapper_passes_current_code_index_helpers(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_run_index_job_impl(**kwargs):
+        captured.update(kwargs)
+        return {"status": "READY"}
+
+    def sentinel_build_file_rows(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(code_index, "run_index_job_impl", fake_run_index_job_impl)
+    monkeypatch.setattr(code_index, "_build_file_rows", sentinel_build_file_rows)
+
+    result = await code_index.run_index_job(index_id="idx_test")
+
+    assert result == {"status": "READY"}
+    assert captured["index_id"] == "idx_test"
+    assert captured["build_file_rows_fn"] is sentinel_build_file_rows
+    assert captured["materialize_index_fn"] is code_index._materialize_index
+    assert captured["materialize_repo_source_ctx"] is code_index._materialize_repo_source
