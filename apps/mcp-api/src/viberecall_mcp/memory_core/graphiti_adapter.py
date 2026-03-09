@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -8,12 +9,10 @@ from datetime import datetime, timezone
 import structlog
 from graphiti_core import Graphiti
 from graphiti_core.driver.falkordb_driver import FalkorDriver
-from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
-from graphiti_core.llm_client.config import LLMConfig
-from graphiti_core.llm_client.openai_client import OpenAIClient
 from graphiti_core.nodes import EpisodeType, EpisodicNode
 
 from viberecall_mcp.config import get_settings
+from viberecall_mcp.graphiti_clients import build_graphiti_openai_components
 from viberecall_mcp.graphiti_upstream_bridge import UpstreamGraphitiBridge
 from viberecall_mcp.memory_core.falkordb_adapter import FalkorDBMemoryCore
 from viberecall_mcp.memory_core.falkordb_admin import FalkorDBGraphManager
@@ -25,9 +24,13 @@ logger = structlog.get_logger(__name__)
 settings = get_settings()
 
 
-def _to_datetime(value: str | None) -> datetime:
+def _to_datetime(value: str | datetime | None) -> datetime:
     if value is None:
         return datetime.now(timezone.utc)
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
     if value.endswith("Z"):
         value = value[:-1] + "+00:00"
     try:
@@ -37,6 +40,13 @@ def _to_datetime(value: str | None) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _api_key_fingerprint(value: str | None) -> str | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
 
 
 class GraphitiMemoryCore:
@@ -60,6 +70,22 @@ class GraphitiMemoryCore:
     def _graphiti_enabled() -> bool:
         return bool((settings.graphiti_api_key or "").strip())
 
+    @staticmethod
+    def _provider_trace(*, sync_status: str, error: str | None = None) -> dict:
+        bridge_mode = settings.graphiti_mcp_bridge_mode
+        is_legacy_openai = bridge_mode != "upstream_bridge" and bool((settings.graphiti_api_key or "").strip())
+        return {
+            "memory_backend": "graphiti",
+            "bridge_mode": bridge_mode,
+            "graphiti_enabled": bool((settings.graphiti_api_key or "").strip()),
+            "sync_status": sync_status,
+            "provider": "openai" if is_legacy_openai else None,
+            "llm_model": settings.graphiti_llm_model if is_legacy_openai else None,
+            "embedder_model": settings.graphiti_embedder_model if is_legacy_openai else None,
+            "api_key_fingerprint": _api_key_fingerprint(settings.graphiti_api_key),
+            "error": error,
+        }
+
     async def _get_graphiti_client(self, project_id: str) -> Graphiti | None:
         if not self._graphiti_enabled():
             return None
@@ -72,17 +98,10 @@ class GraphitiMemoryCore:
             if graph_name in self._clients:
                 return self._clients[graph_name]
 
-            llm_config = LLMConfig(
+            llm_client, embedder, cross_encoder = build_graphiti_openai_components(
                 api_key=settings.graphiti_api_key,
-                model=settings.graphiti_llm_model,
-                small_model=settings.graphiti_llm_model,
-            )
-            llm_client = OpenAIClient(config=llm_config)
-            embedder = OpenAIEmbedder(
-                config=OpenAIEmbedderConfig(
-                    api_key=settings.graphiti_api_key,
-                    embedding_model=settings.graphiti_embedder_model,
-                )
+                llm_model=settings.graphiti_llm_model,
+                embedder_model=settings.graphiti_embedder_model,
             )
             graph_driver = FalkorDriver(
                 host=settings.falkordb_host,
@@ -95,6 +114,7 @@ class GraphitiMemoryCore:
             client = Graphiti(
                 llm_client=llm_client,
                 embedder=embedder,
+                cross_encoder=cross_encoder,
                 graph_driver=graph_driver,
                 store_raw_episode_content=False,
             )
@@ -106,6 +126,7 @@ class GraphitiMemoryCore:
         result = await self._falkordb_core.ingest_episode(project_id, episode)
 
         if not self._graphiti_enabled():
+            provider_trace = self._provider_trace(sync_status="skipped", error="GRAPHITI_API_KEY is empty")
             if project_id not in self._disabled_projects_logged:
                 logger.info(
                     "graphiti_episode_sync_disabled",
@@ -113,18 +134,21 @@ class GraphitiMemoryCore:
                     reason="GRAPHITI_API_KEY is empty",
                 )
                 self._disabled_projects_logged.add(project_id)
-            return result
+            return {**result, "provider_trace": provider_trace}
 
         async with self._ingest_locks[project_id]:
             start = datetime.now(timezone.utc)
+            provider_trace = self._provider_trace(sync_status="attempted")
             try:
                 if settings.graphiti_mcp_bridge_mode == "upstream_bridge":
                     await self._upstream_bridge.add_episode_from_record(project_id, episode)
-                    return result
+                    provider_trace["sync_status"] = "succeeded"
+                    return {**result, "provider_trace": provider_trace}
 
                 client = await self._get_graphiti_client(project_id)
                 if client is None:
-                    return result
+                    provider_trace = self._provider_trace(sync_status="skipped", error="Graphiti client unavailable")
+                    return {**result, "provider_trace": provider_trace}
 
                 reference_time = _to_datetime(episode.get("reference_time") or episode.get("ingested_at"))
                 metadata = episode.get("metadata_json") or {}
@@ -143,23 +167,25 @@ class GraphitiMemoryCore:
                         reference_time=reference_time,
                         source=EpisodeType.text,
                         group_id=project_id,
-                        uuid=episode["episode_id"],
                     ),
                     timeout=settings.graphiti_add_episode_timeout_seconds,
                 )
+                provider_trace["sync_status"] = "succeeded"
             except Exception as exc:  # noqa: BLE001
                 # Keep canonical persistence available even if Graphiti enrichment fails.
+                provider_trace = self._provider_trace(sync_status="failed", error=str(exc))
                 logger.warning(
                     "graphiti_episode_sync_failed",
                     project_id=project_id,
                     episode_id=episode.get("episode_id"),
                     error=str(exc),
+                    provider_trace=provider_trace,
                 )
             finally:
                 elapsed_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000
                 graph_db_latency_ms.labels(operation="graphiti.add_episode").observe(elapsed_ms)
 
-        return result
+        return {**result, "provider_trace": provider_trace}
 
     async def search(
         self,

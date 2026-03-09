@@ -26,8 +26,10 @@ export async function GET(
   }
 
   const url = new URL(request.url);
+  const mode = url.searchParams.get("mode") === "code" ? "code" : "concepts";
   try {
     const payload = await getProjectGraphEntityDetail(user, projectId, entityId, {
+      mode,
       factLimit: parsePositiveInt(url.searchParams.get("fact_limit"), 120),
       episodeLimit: parsePositiveInt(url.searchParams.get("episode_limit"), 120),
       maxFactsScan: parsePositiveInt(url.searchParams.get("max_facts_scan"), 5000),

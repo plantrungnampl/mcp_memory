@@ -31,6 +31,7 @@ class EagerTaskQueue:
         project_id: str,
         request_id: str,
         token_id: str | None,
+        operation_id: str | None = None,
     ) -> str:
         from viberecall_mcp.workers import tasks
 
@@ -42,6 +43,7 @@ class EagerTaskQueue:
                 project_id=project_id,
                 request_id=request_id,
                 token_id=token_id,
+                operation_id=operation_id,
             )
         finally:
             queue_depth.labels(queue="memory").dec()
@@ -58,6 +60,7 @@ class EagerTaskQueue:
         new_text: str,
         effective_time: str,
         reason: str | None,
+        operation_id: str | None = None,
     ) -> EnqueueUpdateFactResult:
         from viberecall_mcp.workers import tasks
 
@@ -73,6 +76,7 @@ class EagerTaskQueue:
                 new_text=new_text,
                 effective_time=effective_time,
                 reason=reason,
+                operation_id=operation_id,
             )
         finally:
             queue_depth.labels(queue="memory").dec()
@@ -173,13 +177,14 @@ class EagerTaskQueue:
         project_id: str,
         request_id: str,
         token_id: str | None,
+        operation_id: str | None = None,
     ) -> str:
         from viberecall_mcp.workers import tasks
 
         job_id = new_id("job_index")
         queue_depth.labels(queue="indexing").inc()
         try:
-            await tasks.run_index_job(index_id=index_id)
+            await tasks.run_index_job(index_id=index_id, operation_id=operation_id)
         finally:
             queue_depth.labels(queue="indexing").dec()
         return job_id
@@ -194,10 +199,11 @@ class CeleryTaskQueue:
         project_id: str,
         request_id: str,
         token_id: str | None,
+        operation_id: str | None = None,
     ) -> str:
         from viberecall_mcp.workers.tasks import ingest_episode_task
 
-        task = ingest_episode_task.delay(episode_id, project_id, request_id, token_id)
+        task = ingest_episode_task.delay(episode_id, project_id, request_id, token_id, operation_id)
         return str(task.id)
 
     async def enqueue_update_fact(
@@ -211,6 +217,7 @@ class CeleryTaskQueue:
         new_text: str,
         effective_time: str,
         reason: str | None,
+        operation_id: str | None = None,
     ) -> EnqueueUpdateFactResult:
         from viberecall_mcp.workers.tasks import update_fact_task
 
@@ -223,6 +230,7 @@ class CeleryTaskQueue:
             new_text,
             effective_time,
             reason,
+            operation_id,
         )
         return EnqueueUpdateFactResult(job_id=str(task.id), immediate_result=None)
 
@@ -283,10 +291,11 @@ class CeleryTaskQueue:
         project_id: str,
         request_id: str,
         token_id: str | None,
+        operation_id: str | None = None,
     ) -> str:
         from viberecall_mcp.workers.tasks import index_repo_task
 
-        task = index_repo_task.delay(index_id, project_id, request_id, token_id)
+        task = index_repo_task.delay(index_id, project_id, request_id, token_id, operation_id)
         return str(task.id)
 
 

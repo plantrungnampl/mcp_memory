@@ -28,6 +28,38 @@ import {
   formatDateTime,
 } from "./graph-playground-shared";
 
+function emptyStateCopy(payload: ProjectGraphPayload | undefined): { eyebrow: string; title: string; body: string } {
+  if (!payload) {
+    return {
+      eyebrow: "No graph data yet",
+      title: "There is no data yet to build this map",
+      body: "Save memory or run indexing to populate this project graph.",
+    };
+  }
+  if (payload.mode === "concepts" && payload.emptyReason === "concepts_unavailable") {
+    return {
+      eyebrow: "No concept graph yet",
+      title: "Only code-like entities are available right now",
+      body: "Switch to Code Topology to inspect modules. Concept graph stays empty until memory contains domain-level entities.",
+    };
+  }
+  if (payload.mode === "code" && payload.emptyReason === "no_ready_index") {
+    return {
+      eyebrow: "Code topology unavailable",
+      title: "There is no READY code index snapshot yet",
+      body: "Run indexing first, then reopen Code Topology.",
+    };
+  }
+  return {
+    eyebrow: payload.mode === "code" ? "No code topology yet" : "No graph data yet",
+    title: payload.mode === "code" ? "There is no module graph to render yet" : "There is no memory yet to build this map",
+    body:
+      payload.mode === "code"
+        ? "No module import relationships were found in the latest READY snapshot."
+        : "Chat with the AI, create more episodes, or refresh this panel after the runtime finishes ingesting new data.",
+  };
+}
+
 type GraphPlaygroundGraphStageProps = {
   projectId: string;
   graphPayload: ProjectGraphPayload | undefined;
@@ -357,7 +389,7 @@ export function GraphPlaygroundGraphStage({
     <article className="vr-graph-stage relative min-h-[720px] overflow-hidden rounded-[28px] border border-[var(--vr-border)]">
       <div className="absolute inset-x-0 top-0 z-10 flex flex-wrap items-start justify-between gap-3 p-4">
         <div className="rounded-full border border-[var(--vr-divider)] bg-[var(--vr-graph-overlay)] px-3 py-1.5 text-[11px] font-medium text-[var(--vr-text-main)] backdrop-blur-md">
-          Drag to explore • Double click to zoom
+          {graphPayload?.mode === "code" ? "Module topology • Double click to focus" : "Drag to explore • Double click to zoom"}
         </div>
         <div className="rounded-full border border-[var(--vr-divider)] bg-[var(--vr-graph-overlay)] px-3 py-1.5 text-[11px] font-medium text-[var(--vr-text-main)] backdrop-blur-md">
           {sigmaStatusLabel}
@@ -506,7 +538,7 @@ export function GraphPlaygroundGraphStage({
               }}
             >
               <p className="font-semibold text-[var(--vr-text-strong)]">
-                Relationship: {hoveredEdge.type} • {hoveredEdge.episodeCount} episodes
+                Relationship: {hoveredEdge.type}
               </p>
               <p className="mt-1 text-[var(--vr-text-main)]">{hoveredEdge.label}</p>
             </div>
@@ -515,12 +547,14 @@ export function GraphPlaygroundGraphStage({
       ) : (
         <div className="flex h-full min-h-[720px] items-center justify-center px-6 text-center">
           <div className="max-w-lg rounded-[24px] border border-[var(--vr-divider)] bg-[var(--vr-graph-overlay)] px-6 py-8">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--vr-text-dim)]">No graph data yet</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--vr-text-dim)]">
+              {emptyStateCopy(graphPayload).eyebrow}
+            </p>
             <h2 className="mt-2 text-2xl font-semibold text-[var(--vr-text-strong)]">
-              There is no memory yet to build this map
+              {emptyStateCopy(graphPayload).title}
             </h2>
             <p className="mt-3 text-sm leading-6 text-[var(--vr-text-main)]">
-              Chat with the AI, create more episodes, or refresh this panel after the runtime finishes ingesting new data.
+              {emptyStateCopy(graphPayload).body}
             </p>
           </div>
         </div>

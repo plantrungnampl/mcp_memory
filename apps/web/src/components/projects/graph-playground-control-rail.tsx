@@ -2,13 +2,14 @@
 
 import { Download, Filter, RefreshCw, Search, X } from "lucide-react";
 
-import type { ProjectGraphNode, ProjectGraphPayload } from "@/lib/api/types";
+import type { GraphViewMode, ProjectGraphNode, ProjectGraphPayload } from "@/lib/api/types";
 
 import { colorForEntityType } from "./graph-playground-shared";
 import { GraphPlaygroundSearchPalette } from "./graph-playground-search-palette";
 
 type GraphPlaygroundControlRailProps = {
   projectId: string;
+  mode: GraphViewMode;
   graphPayload: ProjectGraphPayload | undefined;
   searchQuery: string;
   selectedNodeId: string | null;
@@ -22,6 +23,7 @@ type GraphPlaygroundControlRailProps = {
   onSelectNode: (nodeId: string) => void;
   onToggleType: (type: string) => void;
   onClearTypes: () => void;
+  onViewModeChange: (mode: GraphViewMode) => void;
   onToggleLast30Days: () => void;
   onToggleEdgeLabels: () => void;
   onRefresh: () => void;
@@ -45,6 +47,7 @@ function toggleClassName(active: boolean) {
 
 export function GraphPlaygroundControlRail({
   projectId,
+  mode,
   graphPayload,
   searchQuery,
   selectedNodeId,
@@ -58,6 +61,7 @@ export function GraphPlaygroundControlRail({
   onSelectNode,
   onToggleType,
   onClearTypes,
+  onViewModeChange,
   onToggleLast30Days,
   onToggleEdgeLabels,
   onRefresh,
@@ -68,6 +72,25 @@ export function GraphPlaygroundControlRail({
     <section className="rounded-[22px] border border-[var(--vr-border)] bg-[var(--vr-bg-card)] p-4 sm:p-[18px]">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2.5 xl:flex-nowrap">
+          <div className="flex shrink-0 items-center gap-2 rounded-full border border-[var(--vr-divider)] bg-[var(--vr-graph-overlay)] p-1">
+            {(["concepts", "code"] as const).map((item) => {
+              const active = item === mode;
+              return (
+                <button
+                  className={`rounded-full px-3 py-2 text-xs font-medium transition ${
+                    active
+                      ? "bg-[var(--vr-bg-elevated)] text-[var(--vr-text-strong)] shadow-[inset_0_0_0_1px_rgba(123,140,255,0.25)]"
+                      : "text-[var(--vr-text-dim)] hover:text-[var(--vr-text-main)]"
+                  }`}
+                  key={item}
+                  onClick={() => onViewModeChange(item)}
+                  type="button"
+                >
+                  {item === "concepts" ? "Concept graph" : "Code topology"}
+                </button>
+              );
+            })}
+          </div>
           <div className="min-w-[280px] flex-1">
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--vr-text-dim)]">
               Explore Controls
@@ -77,12 +100,13 @@ export function GraphPlaygroundControlRail({
               <input
                 className="w-full rounded-2xl border border-[var(--vr-divider)] bg-[var(--vr-bg-input)] py-2.5 pl-10 pr-4 text-sm text-[var(--vr-text-strong)] outline-none transition focus:border-[var(--vr-border-strong)]"
                 onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="Search nodes, entity types, or file paths"
+                placeholder={mode === "concepts" ? "Search concepts, entity types, or IDs" : "Search modules"}
                 value={searchQuery}
               />
               <GraphPlaygroundSearchPalette
                 nodes={searchResultNodes}
                 onSelectNode={onSelectNode}
+                primaryCountLabel={graphPayload?.nodePrimaryLabel ?? "Facts"}
                 searchQuery={searchQuery}
                 selectedNodeId={selectedNodeId}
               />
@@ -94,6 +118,7 @@ export function GraphPlaygroundControlRail({
               aria-pressed={showLast30Days}
               className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium transition ${toggleClassName(showLast30Days)}`}
               onClick={onToggleLast30Days}
+              hidden={mode !== "concepts"}
               type="button"
             >
               <span>30d</span>
@@ -142,7 +167,8 @@ export function GraphPlaygroundControlRail({
           </div>
         </div>
 
-        <div className="rounded-[18px] border border-[var(--vr-divider)] bg-[var(--vr-graph-overlay)] px-3 py-2.5">
+        {mode === "concepts" ? (
+          <div className="rounded-[18px] border border-[var(--vr-divider)] bg-[var(--vr-graph-overlay)] px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-2.5">
             <div className="flex shrink-0 items-center gap-2 pr-1">
               <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--vr-text-dim)]">
@@ -186,10 +212,16 @@ export function GraphPlaygroundControlRail({
               </div>
             )}
           </div>
-        </div>
+          </div>
+        ) : (
+          <div className="rounded-[18px] border border-[var(--vr-divider)] bg-[var(--vr-graph-overlay)] px-3 py-2.5 text-sm text-[var(--vr-text-dim)]">
+            Code topology renders modules only. File paths and symbols stay in the inspector so renames and moves do not dominate the canvas.
+          </div>
+        )}
 
         <p className="text-[11px] text-[var(--vr-text-dim)]">
-          Exports reflect the current graph slice for <span className="text-[var(--vr-text-main)]">{projectId}</span>.
+          Exports reflect the current {mode === "concepts" ? "concept" : "code"} graph slice for{" "}
+          <span className="text-[var(--vr-text-main)]">{projectId}</span>.
         </p>
       </div>
     </section>

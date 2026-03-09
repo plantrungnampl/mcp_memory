@@ -45,6 +45,7 @@ class TaskQueue(Protocol):
         project_id: str,
         request_id: str,
         token_id: str | None,
+        operation_id: str | None = None,
     ) -> str: ...
 
     async def enqueue_update_fact(
@@ -58,6 +59,7 @@ class TaskQueue(Protocol):
         new_text: str,
         effective_time: str,
         reason: str | None,
+        operation_id: str | None = None,
     ) -> EnqueueUpdateFactResult: ...
 
     async def enqueue_export(
@@ -101,4 +103,5 @@ class TaskQueue(Protocol):
         project_id: str,
         request_id: str,
         token_id: str | None,
+        operation_id: str | None = None,
     ) -> str: ...

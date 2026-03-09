@@ -1,3 +1,4 @@
+import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -77,6 +78,9 @@ class Settings(BaseSettings):
     raw_episode_inline_max_bytes: int = 65_536
     inline_migration_db_size_threshold_bytes: int = 21_474_836_480
     index_repo_allowed_roots: str = ""
+    index_bundle_max_bytes: int = 52_428_800
+    index_git_credential_refs_json: str = "{}"
+    operation_dispatch_retry_limit: int = 8
     export_storage_mode: Literal["local"] = "local"
     export_local_dir: str = ".runtime-exports"
     export_url_ttl_seconds: int = 3600
@@ -132,6 +136,49 @@ class Settings(BaseSettings):
             roots.append(Path(candidate).expanduser().resolve())
 
         return tuple(roots) if roots else (REPO_ROOT.resolve(),)
+
+    def resolved_index_git_credential_refs(self) -> dict[str, dict]:
+        raw = self.index_git_credential_refs_json.strip() or "{}"
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("INDEX_GIT_CREDENTIAL_REFS_JSON must be valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("INDEX_GIT_CREDENTIAL_REFS_JSON must decode to an object")
+
+        normalized: dict[str, dict] = {}
+        for key, value in payload.items():
+            ref = str(key).strip()
+            if not ref:
+                raise ValueError("INDEX_GIT_CREDENTIAL_REFS_JSON contains an empty credential ref")
+            if not isinstance(value, dict):
+                raise ValueError(f"Credential ref '{ref}' must be an object")
+
+            allowed_hosts = value.get("allowed_hosts") or []
+            if not isinstance(allowed_hosts, list) or not allowed_hosts:
+                raise ValueError(f"Credential ref '{ref}' must define a non-empty allowed_hosts list")
+            normalized_hosts = []
+            for host in allowed_hosts:
+                host_value = str(host).strip().lower()
+                if not host_value:
+                    raise ValueError(f"Credential ref '{ref}' contains an empty allowed_hosts entry")
+                normalized_hosts.append(host_value)
+
+            username = str(value.get("username") or "").strip()
+            password = str(value.get("password") or "").strip()
+            token = str(value.get("token") or "").strip()
+            if token and password:
+                raise ValueError(f"Credential ref '{ref}' must not define both token and password")
+            if not token and not password:
+                raise ValueError(f"Credential ref '{ref}' must define token or password")
+
+            normalized[ref] = {
+                "allowed_hosts": normalized_hosts,
+                "username": username,
+                "password": password,
+                "token": token,
+            }
+        return normalized
 
 
 @lru_cache

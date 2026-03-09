@@ -1,11 +1,13 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { Sigma } from "sigma";
 
 import type {
+  GraphViewMode,
   ProjectGraphEntityDetail,
   ProjectGraphPayload,
   ProjectTimelinePayload,
@@ -33,6 +35,11 @@ type GraphPlaygroundPanelProps = {
 };
 
 const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)";
+const GRAPH_VIEW_QUERY_PARAM = "view";
+
+function normalizeGraphViewMode(value: string | null): GraphViewMode {
+  return value === "code" ? "code" : "concepts";
+}
 
 function getIsDesktopViewport(): boolean {
   if (typeof window === "undefined") {
@@ -50,6 +57,9 @@ function matchesSearch(node: ProjectGraphPayload["nodes"][number], searchLower: 
 }
 
 export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
@@ -60,6 +70,7 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [sigmaInstance, setSigmaInstance] = useState<Sigma<SigmaNodeAttributes, SigmaEdgeAttributes> | null>(null);
   const [isDesktopViewport, setIsDesktopViewport] = useState(getIsDesktopViewport);
+  const viewMode = normalizeGraphViewMode(searchParams.get(GRAPH_VIEW_QUERY_PARAM));
 
   useEffect(() => {
     const mediaQueryList = window.matchMedia(DESKTOP_MEDIA_QUERY);
@@ -76,13 +87,14 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
 
   const graphQuery = useQuery({
     queryKey: projectQueryKeys.graph(projectId, {
+      mode: viewMode,
       last30Days: showLast30Days,
       maxNodes,
       maxEdges,
     }),
     queryFn: () =>
       fetchQueryJson<ProjectGraphPayload>(
-        `/api/projects/${projectId}/graph?max_nodes=${maxNodes}&max_edges=${maxEdges}${showLast30Days ? "&last_days=30" : ""}`,
+        `/api/projects/${projectId}/graph?mode=${viewMode}&max_nodes=${maxNodes}&max_edges=${maxEdges}${viewMode === "concepts" && showLast30Days ? "&last_days=30" : ""}`,
       ),
     refetchInterval: 10_000,
     staleTime: 5_000,
@@ -92,6 +104,7 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
     queryKey: projectQueryKeys.graphTimeline(projectId),
     queryFn: () =>
       fetchQueryJson<ProjectTimelinePayload>(`/api/projects/${projectId}/timeline?limit=30&offset=0`),
+    enabled: viewMode === "concepts",
     refetchInterval: 10_000,
     staleTime: 5_000,
   });
@@ -111,10 +124,10 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
       : null;
 
   const entityDetailQuery = useQuery({
-    queryKey: projectQueryKeys.graphEntityDetail(projectId, selectedNodeIdSafe),
+    queryKey: projectQueryKeys.graphEntityDetail(projectId, selectedNodeIdSafe, viewMode),
     queryFn: () =>
       fetchQueryJson<ProjectGraphEntityDetail>(
-        `/api/projects/${projectId}/graph/entities/${encodeURIComponent(selectedNodeIdSafe ?? "")}?fact_limit=120&episode_limit=120&max_facts_scan=5000`,
+        `/api/projects/${projectId}/graph/entities/${encodeURIComponent(selectedNodeIdSafe ?? "")}?mode=${viewMode}&fact_limit=120&episode_limit=120&max_facts_scan=5000`,
       ),
     enabled: selectedNodeIdSafe !== null,
     refetchInterval: 10_000,
@@ -125,8 +138,11 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
     : null;
 
   const availableTypes = useMemo(
-    () => Array.from(new Set((graphPayload?.nodes ?? []).map((node) => node.type))).sort((a, b) => a.localeCompare(b)),
-    [graphPayload],
+    () =>
+      viewMode === "concepts"
+        ? Array.from(new Set((graphPayload?.nodes ?? []).map((node) => node.type))).sort((a, b) => a.localeCompare(b))
+        : [],
+    [graphPayload, viewMode],
   );
 
   const searchMatches = useMemo(() => {
@@ -183,6 +199,12 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
       createGraphologyGraph(
         graphPayload ?? {
           generatedAt: "",
+          mode: viewMode,
+          emptyReason: "no_graph_data",
+          availableModes: ["concepts", "code"],
+          nodePrimaryLabel: viewMode === "concepts" ? "Facts" : "Symbols",
+          nodeSecondaryLabel: viewMode === "concepts" ? "Episodes" : "Files",
+          edgeSupportLabel: viewMode === "concepts" ? "Facts" : "Importing files",
           entityCount: 0,
           relationshipCount: 0,
           truncated: false,
@@ -190,22 +212,27 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
           edges: [],
         },
       ),
-    [graphPayload],
+    [graphPayload, viewMode],
   );
 
   const refreshAll = useCallback(() => {
     void graphQuery.refetch();
-    void timelineQuery.refetch();
+    if (viewMode === "concepts") {
+      void timelineQuery.refetch();
+    }
     if (selectedNodeIdSafe) {
       void entityDetailQuery.refetch();
     }
-  }, [entityDetailQuery, graphQuery, selectedNodeIdSafe, timelineQuery]);
+  }, [entityDetailQuery, graphQuery, selectedNodeIdSafe, timelineQuery, viewMode]);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
   }, []);
 
   const handleToggleType = useCallback((type: string) => {
+    if (viewMode !== "concepts") {
+      return;
+    }
     setSelectedTypes((previous) => {
       const next = previous.includes(type)
         ? previous.filter((item) => item !== type)
@@ -220,7 +247,7 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
 
       return next;
     });
-  }, [graphPayload, selectedNodeId]);
+  }, [graphPayload, selectedNodeId, viewMode]);
 
   const handleClearTypes = useCallback(() => {
     setSelectedTypes([]);
@@ -231,8 +258,11 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
   }, []);
 
   const handleShowLast30DaysToggle = useCallback(() => {
+    if (viewMode !== "concepts") {
+      return;
+    }
     setShowLast30Days((value) => !value);
-  }, []);
+  }, [viewMode]);
 
   const handleShowEdgeLabelsToggle = useCallback(() => {
     setShowEdgeLabels((value) => !value);
@@ -244,15 +274,28 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
   }, []);
 
   const handleExportPng = useCallback(() => {
-    downloadPngFromSigma(sigmaInstance, `graph-${projectId}.png`);
-  }, [projectId, sigmaInstance]);
+    downloadPngFromSigma(sigmaInstance, `${viewMode}-graph-${projectId}.png`);
+  }, [projectId, sigmaInstance, viewMode]);
 
   const handleExportJson = useCallback(() => {
     if (!graphPayload) {
       return;
     }
-    downloadJson(`graph-${projectId}.json`, graphPayload);
-  }, [graphPayload, projectId]);
+    downloadJson(`${viewMode}-graph-${projectId}.json`, graphPayload);
+  }, [graphPayload, projectId, viewMode]);
+
+  const handleViewModeChange = useCallback((nextMode: GraphViewMode) => {
+    if (nextMode === viewMode) {
+      return;
+    }
+    setSelectedNodeId(null);
+    setSelectedTypes([]);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set(GRAPH_VIEW_QUERY_PARAM, nextMode);
+    startTransition(() => {
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    });
+  }, [pathname, router, searchParams, viewMode]);
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-5">
@@ -260,12 +303,14 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
         graphPayload={graphPayload}
         isError={graphQuery.isError}
         isLoading={graphQuery.isLoading || graphQuery.isFetching}
+        mode={viewMode}
       />
 
       <GraphPlaygroundControlRail
         availableTypes={availableTypes}
         graphPayload={graphPayload}
         isRefreshing={graphQuery.isFetching || timelineQuery.isFetching}
+        mode={viewMode}
         onClearTypes={handleClearTypes}
         onExportJson={handleExportJson}
         onExportPng={handleExportPng}
@@ -275,6 +320,7 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
         onToggleEdgeLabels={handleShowEdgeLabelsToggle}
         onToggleLast30Days={handleShowLast30DaysToggle}
         onToggleType={handleToggleType}
+        onViewModeChange={handleViewModeChange}
         projectId={projectId}
         searchQuery={searchQuery}
         searchResultNodes={searchResultNodes}
@@ -322,7 +368,11 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
             </div>
           ) : mobileNodes.length === 0 ? (
             <div className="rounded-[24px] border border-[var(--vr-border)] bg-[var(--vr-bg-card)] px-5 py-4 text-sm text-[var(--vr-text-dim)]">
-              No matching nodes for the current filters.
+              {graphPayload?.emptyReason === "concepts_unavailable"
+                ? "No concept graph yet. Switch to Code Topology to inspect modules."
+                : graphPayload?.emptyReason === "no_ready_index"
+                  ? "Run indexing first to populate Code Topology."
+                  : "No matching nodes for the current filters."}
             </div>
           ) : (
             <div className="space-y-2">
@@ -349,19 +399,22 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
               error={entityDetailError}
               isError={entityDetailQuery.isError}
               isLoading={entityDetailQuery.isLoading}
+              mode={viewMode}
               onClear={() => handleSelectNode(null)}
               projectId={projectId}
               selectedNode={selectedNode}
             />
           ) : null}
 
-          <GraphPlaygroundRecentThreads
-            data={timelineQuery.data}
-            error={timelineError}
-            isError={timelineQuery.isError}
-            isLoading={timelineQuery.isLoading}
-            projectId={projectId}
-          />
+          {viewMode === "concepts" ? (
+            <GraphPlaygroundRecentThreads
+              data={timelineQuery.data}
+              error={timelineError}
+              isError={timelineQuery.isError}
+              isLoading={timelineQuery.isLoading}
+              projectId={projectId}
+            />
+          ) : null}
         </section>
       ) : (
         <>
@@ -390,6 +443,7 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
                 error={entityDetailError}
                 isError={entityDetailQuery.isError}
                 isLoading={entityDetailQuery.isLoading}
+                mode={viewMode}
                 onClear={() => handleSelectNode(null)}
                 projectId={projectId}
                 selectedNode={selectedNode}
@@ -416,13 +470,15 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
             />
           )}
 
-          <GraphPlaygroundRecentThreads
-            data={timelineQuery.data}
-            error={timelineError}
-            isError={timelineQuery.isError}
-            isLoading={timelineQuery.isLoading}
-            projectId={projectId}
-          />
+          {viewMode === "concepts" ? (
+            <GraphPlaygroundRecentThreads
+              data={timelineQuery.data}
+              error={timelineError}
+              isError={timelineQuery.isError}
+              isLoading={timelineQuery.isLoading}
+              projectId={projectId}
+            />
+          ) : null}
         </>
       )}
     </div>

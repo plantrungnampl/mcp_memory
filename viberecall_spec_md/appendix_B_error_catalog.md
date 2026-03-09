@@ -1,42 +1,45 @@
-# Appendix B — Error Catalog (v0.1)
+# Appendix B — Error Catalog
 
-## 1) Nguyên tắc
-- Tool errors: trả `isError=true` + JSON error object trong `content[].text`
-- HTTP status: 401/403/409/429/500 tương ứng (nếu transport surface cho phép)
+## 1) Tool error envelope
+Tool errors trả trong output envelope chuẩn:
 
-## 2) Error object schema
 ```json
 {
+  "output_version": "1.0",
+  "ok": false,
+  "result": null,
   "error": {
     "code": "RATE_LIMITED",
     "message": "Too many requests",
-    "request_id": "req_...",
     "details": {}
-  }
+  },
+  "request_id": "req_..."
 }
 ```
 
-## 3) Error codes
-### Auth
-- `UNAUTHENTICATED` (401): token thiếu/invalid/expired
-- `FORBIDDEN` (403): token valid nhưng thiếu scope hoặc project mismatch
+## 2) Common tool error codes
+
+### Auth / access
+- `UNAUTHENTICATED`
+- `FORBIDDEN`
 
 ### Validation
-- `INVALID_ARGUMENT` (400): input schema fail
-- `PAYLOAD_TOO_LARGE` (413): vượt size cap
+- `INVALID_ARGUMENT`
+- `PAYLOAD_TOO_LARGE`
 
-### Idempotency/Conflict
-- `CONFLICT` (409): idempotency key reused with different payload
+### State / idempotency
+- `CONFLICT`
 
-### Quota/Rate
-- `RATE_LIMITED` (429): token bucket exceeded
-- `QUOTA_EXCEEDED` (403/429): vượt token quota tháng
+### Runtime / dependency
+- `RATE_LIMITED`
+- `UPSTREAM_ERROR`
+- `INTERNAL`
 
-### Server/Dependency
-- `UPSTREAM_ERROR` (502): LLM/embedding provider fail
-- `GRAPH_DB_ERROR` (503): graph db unavailable
-- `INTERNAL` (500): unknown
+## 3) Transport-level conditions đáng chú ý
+- `404 Session not found`: stale hoặc unknown `mcp-session-id`
+- `406 Not Acceptable`: client không advertise media types mong đợi
+- `401 Missing control-plane assertion`: web -> backend contract bị lỗi ở control-plane path
 
-## 4) Retry guidance (client)
-- Retry safe: `RATE_LIMITED` (respect reset), `UPSTREAM_ERROR` (backoff), `GRAPH_DB_ERROR` (backoff)
-- Do not retry: `INVALID_ARGUMENT`, `FORBIDDEN`, `CONFLICT`
+## 4) Retry guidance
+- Retry hợp lý: `RATE_LIMITED`, `UPSTREAM_ERROR`, stale session sau khi reconnect
+- Không retry nguyên trạng: `INVALID_ARGUMENT`, `FORBIDDEN`, `CONFLICT`

@@ -1,57 +1,67 @@
-# 03 — Auth & Tenancy (MCP-first)
+# 03 — Auth & Tenancy
 
-## 1) Nguyên tắc
-- Dashboard dùng Supabase JWT (web session).
-- IDE/MCP **không dùng JWT**. IDE chỉ gửi **PAT**:
+## 1) Trust boundaries
+
+### Browser -> web app
+- Người dùng đăng nhập bằng **Supabase auth**
+- Web app dùng server-side auth checks cho protected routes
+
+### Web -> control-plane API
+- Không forward raw user identity qua header thường
+- Web ký short-lived assertion và gửi:
+  - `X-Control-Plane-Assertion`
+  - `X-Request-Id`
+- Backend verify signature, issuer, audience, timestamps
+
+### IDE / MCP client -> MCP endpoint
+- IDE chỉ dùng bearer PAT:
   - `Authorization: Bearer vr_mcp_sk_...`
 
-## 2) Token model (PAT)
-Token record:
+## 2) MCP token model
+Token record lưu:
 - `token_id`
-- `token_hash` (không lưu plaintext)
-- `prefix` (để hiển thị)
+- `token_hash`
+- `prefix`
 - `project_id`
 - `scopes[]`
 - `plan`
-- `created_at`, `last_used_at`, `revoked_at`, `expires_at` (optional)
+- `created_at`, `last_used_at`, `revoked_at`, `expires_at`
 
-## 3) Binding với project_id trong URL
-Path: `/p/{project_id}/mcp`
-- Parse `project_id` từ path.
-- Verify token → token phải map đúng `project_id`.
-- Nếu token valid nhưng project mismatch → 403.
+Plaintext token chỉ được hiển thị một lần khi tạo hoặc rotate.
 
-## 4) Scopes (tối thiểu)
-- `memory:read`, `memory:write`
-- `facts:read`, `facts:write`
+## 3) Project binding
+- `project_id` lấy từ path `/p/{project_id}/mcp`
+- Token hợp lệ nhưng khác `project_id` -> `403`
+- Runtime graph name/prefix được derive từ project, không tin tenant input từ client
+
+## 4) Scope model hiện tại
+Default MCP scopes hiện hành:
+- `memory:read`
+- `memory:write`
+- `facts:read`
+- `facts:write`
 - `timeline:read`
-- `admin:export`, `admin:purge`
 
-## 5) Rate limit & idempotency
-- Rate limit per `token_id` + per `project_id` (Redis token bucket).
-- Idempotency:
-  - Header: `Idempotency-Key` (write endpoints / save/update/export)
-  - TTL: 24h
-  - same key + different payload → 409
+Control-plane maintenance/export không dùng MCP PAT scopes; chúng là owner-scoped web/control-plane actions.
 
-## 6) Multi-tenant isolation
-Hard isolation:
-- `graph_name = vr_{project_id}` (sanitize)
-- Mọi Graphiti calls phải bind theo graph_name tenant.
-- Không nhận group_id từ client.
+## 5) Runtime access policy hiện tại
+- Bất kỳ token hợp lệ nào cũng thấy toàn bộ **11 public MCP tools**
+- `plan` vẫn được lưu làm metadata nhưng không còn là tool-gating surface ở runtime
+- Quota hiện dùng cho metering/analytics, không block tool execution
+- Rate limit, payload cap, idempotency, auth, expiry, revoke, project binding vẫn được enforce
 
-## 7) Rotation & revoke
-- Token chỉ show plaintext **1 lần** khi tạo.
-- Rotate = tạo token mới + revoke token cũ (grace period optional).
+## 6) Rate limit & idempotency
+- Rate limit per token và per project
+- Write paths hỗ trợ `Idempotency-Key`
+- Reuse cùng idempotency key nhưng payload khác -> `409 CONFLICT`
 
+## 7) Revocation / rotation
+- `revoked_at <= now` -> token không còn hợp lệ
+- `revoked_at > now` có thể được dùng như grace-period valid token trong lifecycle hiện tại
+- Rotate tạo token mới, token cũ bị revoke theo semantics ở DB
 
-## 8) Token lifecycle policy (chốt cứng v0.1)
-
-- **Default expiration**: tokens **không hết hạn** (expires_at = null) trừ khi user set khi tạo.
-- **Rotate grace period**: 15 phút (token cũ vẫn valid để IDE reconnect).
-- **Emergency revoke propagation**:
-  - Gateway check Redis **revocation set** trước (TTL 24h) để revoke gần-real-time.
-  - Cache token status tối đa 30s; revoke sẽ invalidate cache qua Redis pubsub (nếu có), nếu không thì worst-case 30s.
-- **Audit**:
-  - mọi tool call ghi `token_id`, `request_id`, `tool_name`, `args_hash`, `status`.
-
+## 8) Origin / payload protections
+- MCP runtime có thể enforce `Origin` allowlist khi được cấu hình
+- Request payload bị giới hạn kích thước
+- Missing / invalid bearer token -> `401`
+- Missing control-plane assertion ở backend route từ web -> `401`

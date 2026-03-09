@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from viberecall_mcp import app as app_module
 from viberecall_mcp import control_plane
 from viberecall_mcp.app import create_app
+from viberecall_mcp.auth import AuthenticatedToken
 from viberecall_mcp.config import get_settings
 from viberecall_mcp.control_plane_assertion import (
     ControlPlaneAssertionClaims as AuthenticatedControlPlaneUser,
@@ -219,6 +220,146 @@ def test_control_plane_requires_internal_secret() -> None:
     assert response.status_code == 401
 
 
+def test_runtime_index_bundle_upload_accepts_mcp_token(monkeypatch) -> None:
+    stored: dict[str, object] = {}
+
+    async def fake_auth(_session, *, authorization, project_id):
+        assert authorization == "Bearer test-token"
+        assert project_id == "proj_upload"
+        return AuthenticatedToken(
+            token_id="tok_test",
+            project_id=project_id,
+            scopes=["index:run"],
+            plan="free",
+            db_name=f"vr_{project_id}",
+        )
+
+    async def fake_put_bytes(*, object_key: str, content: bytes, content_type: str = "application/octet-stream") -> None:
+        stored["object_key"] = object_key
+        stored["content"] = content
+        stored["content_type"] = content_type
+
+    async def fake_create_index_bundle(_session, **kwargs):
+        stored["bundle_kwargs"] = kwargs
+        return {
+            "bundle_id": kwargs["bundle_id"],
+            "filename": kwargs["filename"],
+            "byte_size": kwargs["byte_size"],
+            "sha256": kwargs["sha256"],
+            "created_at": "2026-03-09T12:00:00Z",
+            "expires_at": None,
+        }
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(app_module, "authenticate_bearer_token", fake_auth)
+    monkeypatch.setattr(app_module, "put_bytes", fake_put_bytes)
+    monkeypatch.setattr(app_module, "create_index_bundle", fake_create_index_bundle)
+    monkeypatch.setattr(app_module, "insert_audit_log", fake_audit)
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/p/proj_upload/index-bundles",
+            headers={"authorization": "Bearer test-token"},
+            files={
+                "file": (
+                    "workspace.zip",
+                    _valid_bundle_bytes(),
+                    "application/zip",
+                )
+            },
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["bundle"]["bundle_ref"].startswith("bundle://bundle_")
+    assert body["bundle"]["filename"] == "workspace.zip"
+    assert stored["content_type"] == "application/zip"
+
+
+def test_runtime_index_bundle_upload_requires_index_scope(monkeypatch) -> None:
+    async def fake_auth(_session, *, authorization, project_id):
+        _ = (authorization, project_id)
+        return AuthenticatedToken(
+            token_id="tok_test",
+            project_id="proj_upload",
+            scopes=["memory:read"],
+            plan="free",
+            db_name="vr_proj_upload",
+        )
+
+    monkeypatch.setattr(app_module, "authenticate_bearer_token", fake_auth)
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/p/proj_upload/index-bundles",
+            headers={"authorization": "Bearer test-token"},
+            files={"file": ("workspace.zip", _valid_bundle_bytes(), "application/zip")},
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Missing required scope: index:run"
+
+
+def test_runtime_index_bundle_upload_rejects_invalid_manifest(monkeypatch) -> None:
+    async def fake_auth(_session, *, authorization, project_id):
+        _ = (authorization, project_id)
+        return AuthenticatedToken(
+            token_id="tok_test",
+            project_id="proj_upload",
+            scopes=["index:run"],
+            plan="free",
+            db_name="vr_proj_upload",
+        )
+
+    monkeypatch.setattr(app_module, "authenticate_bearer_token", fake_auth)
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/p/proj_upload/index-bundles",
+            headers={"authorization": "Bearer test-token"},
+            files={"file": ("workspace.zip", b"not-a-zip", "application/zip")},
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 422
+
+
+def _valid_bundle_bytes() -> bytes:
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "format_version": 1,
+                    "repo_name": "demo",
+                    "root_relative": ".",
+                    "generated_at": "2026-03-09T12:00:00Z",
+                    "git": None,
+                    "files": [{"path": "src/demo.py", "sha256": "x", "size_bytes": 1, "mode": "0644"}],
+                }
+            ),
+        )
+        archive.writestr("src/demo.py", "x")
+    return buffer.getvalue()
+
+
 def test_control_plane_echoes_request_id_on_success(monkeypatch) -> None:
     async def fake_list_projects_for_owner(_session, *, owner_id: str, include_unowned: bool):
         assert owner_id == "user_123"
@@ -334,7 +475,15 @@ def test_project_usage_returns_rollup(monkeypatch) -> None:
 
 
 def test_default_scopes_for_all_plans_are_full_access() -> None:
-    expected = ["memory:read", "memory:write", "facts:read", "facts:write", "timeline:read"]
+    expected = [
+        "memory:read",
+        "memory:write",
+        "facts:write",
+        "index:read",
+        "index:run",
+        "ops:read",
+        "delete:write",
+    ]
 
     assert control_plane._default_scopes_for_plan("free") == expected
     assert control_plane._default_scopes_for_plan("pro") == expected
@@ -503,10 +652,13 @@ def test_project_graph_returns_nodes_and_edges(monkeypatch) -> None:
     app.dependency_overrides.clear()
     assert response.status_code == 200
     body = response.json()["graph"]
-    assert body["entity_count"] == 3
-    assert body["relationship_count"] == 2
-    assert any(node["entity_id"] == "ent_file_a" and node["fact_count"] == 2 for node in body["nodes"])
-    assert any(edge["source_entity_id"] == "ent_decision" or edge["target_entity_id"] == "ent_decision" for edge in body["edges"])
+    assert body["mode"] == "concepts"
+    assert body["empty_reason"] == "none"
+    assert body["node_primary_label"] == "Facts"
+    assert body["entity_count"] == 2
+    assert body["relationship_count"] == 0
+    assert all(node["entity_id"] != "ent_file_a" for node in body["nodes"])
+    assert body["edges"] == []
 
 
 def test_project_graph_entity_detail_returns_facts_and_provenance(monkeypatch) -> None:
@@ -578,12 +730,230 @@ def test_project_graph_entity_detail_returns_facts_and_provenance(monkeypatch) -
     app.dependency_overrides.clear()
     assert response.status_code == 200
     body = response.json()
+    assert body["mode"] == "concepts"
     assert body["entity"]["entity_id"] == "ent_file_a"
     assert body["entity"]["type"] == "File"
     assert len(body["facts"]) == 1
     assert body["facts"][0]["fact_id"] == "fact_1"
     assert len(body["provenance"]) == 1
     assert body["provenance"][0]["episode_id"] == "ep_1"
+    assert body["related_entities"] == []
+    assert body["citations"] == []
+    assert body["symbols"] == []
+
+
+def test_project_graph_returns_concepts_unavailable_when_only_code_entities_remain(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_ensure_graph_dependencies_ready() -> None:
+        return None
+
+    async def fake_collect_project_facts(*, project_id: str, max_rows: int):
+        assert project_id == "proj_1"
+        assert max_rows == 5000
+        return [
+            {
+                "id": "fact_1",
+                "text": "Parser issue in src/module-a.ts",
+                "valid_at": "2026-03-01T10:00:00Z",
+                "invalid_at": None,
+                "ingested_at": "2026-03-01T10:01:00Z",
+                "entities": [
+                    {"id": "ent_file_a", "type": "File", "name": "src/module-a.ts"},
+                    {"id": "symbol:src/module-a.ts:parse:10", "type": "Symbol", "name": "parse"},
+                ],
+                "provenance": {
+                    "episode_ids": ["ep_1"],
+                    "reference_time": "2026-03-01T10:00:00Z",
+                    "ingested_at": "2026-03-01T10:01:00Z",
+                },
+            }
+        ]
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "_ensure_graph_dependencies_ready", fake_ensure_graph_dependencies_ready)
+    monkeypatch.setattr(control_plane, "_collect_project_facts", fake_collect_project_facts)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        response = client.get("/api/control-plane/projects/proj_1/graph", headers=auth_headers())
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()["graph"]
+    assert body["mode"] == "concepts"
+    assert body["empty_reason"] == "concepts_unavailable"
+    assert body["entity_count"] == 0
+    assert body["relationship_count"] == 0
+
+
+def test_project_graph_returns_code_topology_payload(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_ensure_graph_dependencies_ready() -> None:
+        return None
+
+    async def fake_build_code_topology_graph(*, session, project_id: str, query: str | None, max_nodes: int, max_edges: int):
+        assert project_id == "proj_1"
+        assert query is None
+        assert max_nodes == 1500
+        assert max_edges == 4000
+        return {
+            "generated_at": "2026-03-08T10:00:00Z",
+            "mode": "code",
+            "empty_reason": "none",
+            "available_modes": ["concepts", "code"],
+            "node_primary_label": "Symbols",
+            "node_secondary_label": "Files",
+            "edge_support_label": "Importing files",
+            "entity_count": 2,
+            "relationship_count": 1,
+            "truncated": False,
+            "nodes": [
+                {
+                    "entity_id": "module:app.projects",
+                    "type": "Module",
+                    "name": "app.projects",
+                    "fact_count": 12,
+                    "episode_count": 2,
+                    "reference_time": "2026-03-08T10:00:00Z",
+                    "hover_text": [],
+                },
+                {
+                    "entity_id": "module:app.timeline",
+                    "type": "Module",
+                    "name": "app.timeline",
+                    "fact_count": 5,
+                    "episode_count": 1,
+                    "reference_time": "2026-03-08T10:00:00Z",
+                    "hover_text": [],
+                },
+            ],
+            "edges": [
+                {
+                    "edge_id": "edge:module:app.projects:module:app.timeline",
+                    "type": "IMPORTS",
+                    "source_entity_id": "module:app.projects",
+                    "target_entity_id": "module:app.timeline",
+                    "weight": 2,
+                    "episode_count": 2,
+                    "label": "Imported by 2 files",
+                }
+            ],
+        }
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "_ensure_graph_dependencies_ready", fake_ensure_graph_dependencies_ready)
+    monkeypatch.setattr(control_plane, "build_code_topology_graph", fake_build_code_topology_graph)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        response = client.get("/api/control-plane/projects/proj_1/graph?mode=code", headers=auth_headers())
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()["graph"]
+    assert body["mode"] == "code"
+    assert body["node_primary_label"] == "Symbols"
+    assert body["entity_count"] == 2
+    assert body["edges"][0]["type"] == "IMPORTS"
+
+
+def test_project_graph_code_entity_detail_returns_module_payload(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_ensure_graph_dependencies_ready() -> None:
+        return None
+
+    async def fake_get_code_topology_entity_detail(*, session, project_id: str, entity_id: str):
+        assert project_id == "proj_1"
+        assert entity_id == "module:app.projects"
+        return {
+            "mode": "code",
+            "entity": {
+                "entity_id": "module:app.projects",
+                "type": "Module",
+                "name": "app.projects",
+                "fact_count": 12,
+                "episode_count": 2,
+                "file_paths": ["src/app/projects/page.tsx"],
+                "language": None,
+                "kind": None,
+            },
+            "facts": [],
+            "provenance": [],
+            "related_entities": [
+                {
+                    "entity_id": "module:app.timeline",
+                    "type": "Module",
+                    "name": "app.timeline",
+                    "relation_type": "IMPORTS",
+                    "support_count": 2,
+                }
+            ],
+            "citations": [
+                {
+                    "citation_id": "chunk:file:src/app/projects/page.tsx",
+                    "source_type": "code_chunk",
+                    "entity_id": "file:src/app/projects/page.tsx",
+                    "file_path": "src/app/projects/page.tsx",
+                    "line_start": 1,
+                    "line_end": 10,
+                    "snippet": "export default function Page() {}",
+                }
+            ],
+            "symbols": [
+                {
+                    "entity_id": "symbol:src/app/projects/page.tsx:Page:1",
+                    "name": "Page",
+                    "kind": "function",
+                    "file_path": "src/app/projects/page.tsx",
+                    "line_start": 1,
+                    "line_end": 10,
+                    "language": "typescript",
+                }
+            ],
+        }
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "_ensure_graph_dependencies_ready", fake_ensure_graph_dependencies_ready)
+    monkeypatch.setattr(control_plane, "get_code_topology_entity_detail", fake_get_code_topology_entity_detail)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_1/graph/entities/module%3Aapp.projects?mode=code",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "code"
+    assert body["entity"]["entity_id"] == "module:app.projects"
+    assert body["related_entities"][0]["relation_type"] == "IMPORTS"
+    assert body["symbols"][0]["name"] == "Page"
 
 
 def test_project_graph_returns_503_when_dependencies_unavailable(monkeypatch) -> None:

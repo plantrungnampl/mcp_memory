@@ -8,14 +8,20 @@ import secrets
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from itertools import combinations
+from pathlib import PurePosixPath
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from viberecall_mcp.auth import hash_payload, hash_token
+from viberecall_mcp.code_index import (
+    build_code_topology_graph,
+    get_code_topology_entity_detail,
+    validate_workspace_bundle_archive,
+)
 from viberecall_mcp.config import get_settings
 from viberecall_mcp.control_plane_auth import (
     AuthenticatedControlPlaneUser,
@@ -55,6 +61,7 @@ from viberecall_mcp.repositories.projects import (
     list_projects_for_owner,
     update_project_plan,
 )
+from viberecall_mcp.repositories.index_bundles import create_index_bundle
 from viberecall_mcp.repositories.tokens import (
     create_token,
     get_latest_active_token_preview,
@@ -73,6 +80,7 @@ from viberecall_mcp.repositories.webhooks import (
     get_webhook_event,
     mark_webhook_event_status,
 )
+from viberecall_mcp.object_storage import bundle_storage_key, put_bytes
 from viberecall_mcp.runtime import (
     build_graph_dependency_detail,
     get_memory_core,
@@ -93,6 +101,7 @@ class CreateProjectInput(BaseModel):
 
 class CreateTokenInput(BaseModel):
     expires_at: datetime | None = None
+    scopes: list[str] | None = None
 
 
 class CreateExportInput(BaseModel):
@@ -172,6 +181,18 @@ def _serialize_token(token: dict, *, plaintext: str | None = None) -> dict:
     }
 
 
+def _serialize_index_bundle(bundle: dict) -> dict:
+    return {
+        "bundle_id": bundle["bundle_id"],
+        "bundle_ref": f"bundle://{bundle['bundle_id']}",
+        "filename": bundle["filename"],
+        "byte_size": int(bundle["byte_size"]),
+        "sha256": bundle["sha256"],
+        "created_at": bundle["created_at"],
+        "expires_at": bundle.get("expires_at"),
+    }
+
+
 def _token_status(token: dict) -> str:
     revoked_at = token.get("revoked_at")
     now = datetime.now(timezone.utc)
@@ -191,7 +212,43 @@ def _build_connection(project_id: str, token_prefix: str | None) -> dict:
 
 def _default_scopes_for_plan(plan: str) -> list[str]:
     _ = plan
-    return ["memory:read", "memory:write", "facts:read", "facts:write", "timeline:read"]
+    return [
+        "memory:read",
+        "memory:write",
+        "facts:write",
+        "index:read",
+        "index:run",
+        "ops:read",
+        "delete:write",
+    ]
+
+
+def _normalize_requested_scopes(scopes: list[str] | None, *, plan: str) -> list[str]:
+    allowed = set(_default_scopes_for_plan(plan)) | {"facts:read", "timeline:read"}
+    if scopes is None:
+        return _default_scopes_for_plan(plan)
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for scope in scopes:
+        value = scope.strip()
+        if not value:
+            continue
+        if value not in allowed:
+            supported = ", ".join(sorted(allowed))
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unsupported scope: {value}. Supported scopes: {supported}",
+            )
+        if value not in seen:
+            normalized.append(value)
+            seen.add(value)
+    if not normalized:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="At least one scope is required",
+        )
+    return normalized
 
 
 def _serialize_api_log(log: dict) -> dict:
@@ -354,7 +411,27 @@ async def _collect_project_facts_for_graph(*, project_id: str, max_rows: int) ->
         raise
 
 
-def _build_graph_payload(
+def _looks_like_repo_path(value: str) -> bool:
+    text = value.strip()
+    if not text or "/" not in text:
+        return False
+    path = PurePosixPath(text)
+    suffix = path.suffix.lower()
+    return suffix in {".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".md", ".sql", ".yaml", ".yml"}
+
+
+def _is_code_like_entity(*, entity_id: str, entity_type: str, entity_name: str) -> bool:
+    normalized_id = entity_id.strip().lower()
+    normalized_type = entity_type.strip().lower()
+    normalized_name = entity_name.strip()
+    if normalized_type in {"file", "module", "symbol", "import"}:
+        return True
+    if any(normalized_id.startswith(prefix) for prefix in ("file:", "module:", "symbol:", "import:")):
+        return True
+    return _looks_like_repo_path(normalized_name) or _looks_like_repo_path(entity_id)
+
+
+def _build_concept_graph_payload(
     *,
     facts: list[dict],
     query_text: str | None,
@@ -371,6 +448,7 @@ def _build_graph_payload(
     nodes: dict[str, dict] = {}
     edges: dict[tuple[str, str], dict] = {}
     neighbors: dict[str, set[str]] = defaultdict(set)
+    code_like_nodes_seen = False
 
     for fact in facts:
         invalid_at = _parse_iso_datetime(fact.get("invalid_at"))
@@ -398,6 +476,9 @@ def _build_graph_payload(
             entity_type = str(entity.get("type") or "Unknown").strip() or "Unknown"
             entity_name = str(entity.get("name") or entity_id).strip() or entity_id
 
+            if _is_code_like_entity(entity_id=entity_id, entity_type=entity_type, entity_name=entity_name):
+                code_like_nodes_seen = True
+                continue
             if type_filters and entity_type not in type_filters:
                 continue
 
@@ -473,16 +554,30 @@ def _build_graph_payload(
     edge_rows = [
         {
             "edge_id": f"edge:{source_id}:{target_id}",
-            "type": "CO_OCCURS",
+            "type": "RELATED_IN_MEMORY",
             "source_entity_id": source_id,
             "target_entity_id": target_id,
             "weight": int(edge["weight"]),
             "episode_count": len(edge["episode_ids"]),
-            "label": f"CO_OCCURS • {int(edge['weight'])} facts",
+            "label": f"Related across {int(edge['weight'])} fact{'s' if int(edge['weight']) != 1 else ''}",
         }
         for (source_id, target_id), edge in edges.items()
         if source_id in selected_ids and target_id in selected_ids
     ]
+    edge_rows_by_node: dict[str, list[dict]] = defaultdict(list)
+    for row in edge_rows:
+        edge_rows_by_node[row["source_entity_id"]].append(row)
+        edge_rows_by_node[row["target_entity_id"]].append(row)
+    kept_edge_ids: set[str] = set()
+    for node_id, rows in edge_rows_by_node.items():
+        _ = node_id
+        rows.sort(
+            key=lambda row: (row["weight"], row["episode_count"], row["edge_id"]),
+            reverse=True,
+        )
+        for row in rows[:6]:
+            kept_edge_ids.add(str(row["edge_id"]))
+    edge_rows = [row for row in edge_rows if str(row["edge_id"]) in kept_edge_ids]
     edge_rows.sort(
         key=lambda row: (row["weight"], row["episode_count"], row["edge_id"]),
         reverse=True,
@@ -513,6 +608,12 @@ def _build_graph_payload(
 
     return {
         "generated_at": now.isoformat(),
+        "mode": "concepts",
+        "empty_reason": "none" if node_rows else ("concepts_unavailable" if code_like_nodes_seen else "no_graph_data"),
+        "available_modes": ["concepts", "code"],
+        "node_primary_label": "Facts",
+        "node_secondary_label": "Episodes",
+        "edge_support_label": "Facts",
         "entity_count": len(node_rows),
         "relationship_count": len(edge_rows),
         "truncated": truncated_nodes or truncated_edges,
@@ -619,13 +720,14 @@ def _build_token_create_payload(
     project_id: str,
     plan: str,
     expires_at: datetime | None = None,
+    scopes: list[str] | None = None,
 ) -> tuple[str, str, str, str, list[str], str, datetime | None]:
     token_id = new_id("tok")
     plaintext = _generate_pat()
     prefix = plaintext[:16]
     token_hash = hash_token(plaintext)
-    scopes = _default_scopes_for_plan(plan)
-    return token_id, plaintext, prefix, token_hash, scopes, project_id, expires_at
+    token_scopes = _normalize_requested_scopes(scopes, plan=plan)
+    return token_id, plaintext, prefix, token_hash, token_scopes, project_id, expires_at
 
 
 async def _ensure_project_access(
@@ -781,6 +883,7 @@ async def create_project_route(
         project_id=project["id"],
         plan=project["plan"],
         expires_at=None,
+        scopes=None,
     )
     token = await create_token(
         session,
@@ -852,6 +955,68 @@ async def connection_route(
         project_id=project_id,
     )
     return _build_connection(project_id, token["prefix"] if token else None)
+
+
+@router.post("/projects/{project_id}/index-bundles")
+async def upload_index_bundle_route(
+    project_id: str,
+    file: UploadFile = File(...),
+    user: AuthenticatedControlPlaneUser = Depends(authenticate_control_plane_request),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _ensure_project_access(
+        session,
+        project_id=project_id,
+        user=user,
+        claim_unowned_on_write=True,
+    )
+    filename = (file.filename or "").strip()
+    if not filename.lower().endswith(".zip"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Index bundle must be a .zip archive",
+        )
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Index bundle is empty",
+        )
+    if len(payload) > settings.index_bundle_max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Index bundle exceeds size limit",
+        )
+    try:
+        validate_workspace_bundle_archive(payload)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    bundle_id = new_id("bundle")
+    object_key = bundle_storage_key(project_id, bundle_id)
+    await put_bytes(object_key=object_key, content=payload, content_type="application/zip")
+    bundle = await create_index_bundle(
+        session,
+        bundle_id=bundle_id,
+        project_id=project_id,
+        object_key=object_key,
+        filename=filename,
+        byte_size=len(payload),
+        sha256=hashlib.sha256(payload).hexdigest(),
+        uploaded_by_user_id=user.user_id,
+    )
+    await session.commit()
+    await _audit_control_plane(
+        session,
+        action="control-plane/index-bundle.create",
+        status_text="ok",
+        user=user,
+        project_id=project_id,
+    )
+    return {"bundle": _serialize_index_bundle(bundle)}
 
 
 @router.get("/projects/{project_id}/tokens")
@@ -979,6 +1144,7 @@ async def project_graph_route(
     q: str | None = None,
     entity_types: str | None = None,
     last_days: int | None = None,
+    mode: Literal["concepts", "code"] = "concepts",
     max_nodes: int = 1500,
     max_edges: int = 4000,
     max_facts: int = 5000,
@@ -1014,15 +1180,24 @@ async def project_graph_route(
 
     await _ensure_graph_dependencies_ready()
     parsed_types = {item.strip() for item in (entity_types or "").split(",") if item.strip()}
-    facts = await _collect_project_facts_for_graph(project_id=project_id, max_rows=max_facts)
-    payload = _build_graph_payload(
-        facts=facts,
-        query_text=q,
-        entity_types=parsed_types,
-        last_days=last_days,
-        max_nodes=max_nodes,
-        max_edges=max_edges,
-    )
+    if mode == "code":
+        payload = await build_code_topology_graph(
+            session=session,
+            project_id=project_id,
+            query=q,
+            max_nodes=max_nodes,
+            max_edges=max_edges,
+        )
+    else:
+        facts = await _collect_project_facts_for_graph(project_id=project_id, max_rows=max_facts)
+        payload = _build_concept_graph_payload(
+            facts=facts,
+            query_text=q,
+            entity_types=parsed_types,
+            last_days=last_days,
+            max_nodes=max_nodes,
+            max_edges=max_edges,
+        )
     await _audit_control_plane(
         session,
         action="control-plane/graph.read",
@@ -1037,6 +1212,7 @@ async def project_graph_route(
 async def project_graph_entity_detail_route(
     project_id: str,
     entity_id: str,
+    mode: Literal["concepts", "code"] = "concepts",
     fact_limit: int = 120,
     episode_limit: int = 120,
     max_facts_scan: int = 5000,
@@ -1066,6 +1242,26 @@ async def project_graph_entity_detail_route(
         )
 
     await _ensure_graph_dependencies_ready()
+    if mode == "code":
+        try:
+            payload = await get_code_topology_entity_detail(
+                session=session,
+                project_id=project_id,
+                entity_id=entity_id,
+            )
+        except ValueError as exc:
+            detail = str(exc).strip() or "Entity not found"
+            status_code = status.HTTP_404_NOT_FOUND if detail == "Entity not found" else status.HTTP_422_UNPROCESSABLE_ENTITY
+            raise HTTPException(status_code=status_code, detail=detail) from exc
+        await _audit_control_plane(
+            session,
+            action="control-plane/graph.entity.read",
+            status_text="ok",
+            user=user,
+            project_id=project_id,
+        )
+        return payload
+
     facts = await _collect_project_facts_for_graph(project_id=project_id, max_rows=max_facts_scan)
     matched_rows: list[dict] = []
     entity_profile: dict | None = None
@@ -1141,6 +1337,7 @@ async def project_graph_entity_detail_route(
         project_id=project_id,
     )
     return {
+        "mode": "concepts",
         "entity": {
             **entity_profile,
             "fact_count": len(matched_rows),
@@ -1148,6 +1345,9 @@ async def project_graph_entity_detail_route(
         },
         "facts": facts_payload,
         "provenance": provenance_rows,
+        "related_entities": [],
+        "citations": [],
+        "symbols": [],
     }
 
 
@@ -1841,6 +2041,7 @@ async def create_token_route(
         project_id=project_id,
         plan=project["plan"],
         expires_at=payload.expires_at,
+        scopes=payload.scopes,
     )
     token = await create_token(
         session,
@@ -1902,6 +2103,7 @@ async def rotate_token_route(
         project_id=project_id,
         plan=project["plan"],
         expires_at=None,
+        scopes=list(old_token.get("scopes") or []) or None,
     )
     new_token = await create_token(
         session,

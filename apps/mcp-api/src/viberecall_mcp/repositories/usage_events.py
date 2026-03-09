@@ -20,6 +20,7 @@ async def create_usage_event(
     model: str | None = None,
     in_tokens: int = 0,
     out_tokens: int = 0,
+    commit: bool = True,
 ) -> None:
     await session.execute(
         text(
@@ -42,7 +43,8 @@ async def create_usage_event(
             "vibe_tokens": vibe_tokens,
         },
     )
-    await session.commit()
+    if commit:
+        await session.commit()
     monthly_total = await get_monthly_vibe_tokens(session, project_id=project_id)
     tokens_burn_rate.labels(project=project_id).set(monthly_total)
 

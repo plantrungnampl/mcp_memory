@@ -1,81 +1,47 @@
-# 07 — Pricing & Usage (Token-based)
+# 07 — Pricing, Quota & Usage
 
-> Pricing theo **token** như yêu cầu. Để tránh tranh cãi/cost blow-up, cần định nghĩa rõ “token” và cơ chế metering.
+## 1) VibeTokens
+VibeTokens là đơn vị metering nội bộ cho usage analytics và billing surfaces.
 
-## 1) Định nghĩa VibeTokens
-**VibeTokens** = tổng tokens hệ thống tiêu thụ cho project, gồm:
-- LLM tokens cho extraction/summarization (nếu có)
-- Embedding tokens (nếu có)
-- Optional rerank tokens (nếu có)
+Nguồn usage có thể gồm:
+- input/output tokens từ provider calls
+- embedding / enrichment / rerank usage nếu pipeline sử dụng
+- lightweight heuristic estimates cho một số tool paths
 
-Nguồn số liệu:
-- Lấy usage tokens từ provider (OpenAI/Groq/…) rồi normalize → VibeTokens.
+## 2) Current runtime policy
+- MCP runtime hiện là **all-users-free** cho mọi bearer token hợp lệ
+- `plan` vẫn được lưu ở project/token metadata
+- usage vẫn được ghi nhận để hiển thị dashboard và phục vụ pricing/billing về sau
+- quota hiện **không hard-block** public MCP tools
 
-## 2) Metering events
-Mỗi tool/job sinh `usage_event`:
-- `project_id`, `token_id`, `tool_name`
-- `provider`, `model`
-- `input_tokens`, `output_tokens`, `vibe_tokens`
-- `timestamp`, `status`
+## 3) Quota numbers đang tồn tại trong config
+- Free: `100_000` VibeTokens / tháng
+- Pro: `5_000_000` VibeTokens / tháng
+- Team: `20_000_000` VibeTokens / tháng
 
-Counters:
-- Redis: realtime monthly counters
-- Postgres: daily/monthly rollups (billing + dashboard)
+Các ngưỡng này hiện được dùng làm planning/analytics baseline, không phải runtime gate.
 
-## 3) Quota enforcement
-- Pre-check quota ở Gateway (Redis counter).
-- Hard stop khi vượt (tool isError + 429/403).
-- Optional: grace/overage (paid plans).
+## 4) Usage events
+Mỗi event có thể gắn:
+- `project_id`
+- `token_id`
+- `tool`
+- provider / model metadata nếu có
+- `vibe_tokens`
+- status / timestamp
 
-## 4) Pricing (v0.1)
-### Free
-- 100k VibeTokens / tháng
-- 5 projects
-- MCP basic tools (save/search/timeline) + limit rate
+Dashboard reads hiện lấy từ Postgres-backed usage data và rollups.
 
-### Pro ($9/mo)
-- Token cap lớn hoặc “Unlimited* (fair use)”
-- MCP full tools
-- Priority queue + higher limits
-- Team sharing basic
+## 5) Normalize formula
+Current config giữ:
+- `vibe_in_mul`
+- `vibe_out_mul`
 
-### Team ($29/mo)
-- Seat-based + token pool
-- Shared projects + RBAC + audit log
-- Admin controls
+Heuristic examples:
+- `save` và `update_fact` có estimate dựa trên payload length
+- các tool nhẹ mặc định charge rất thấp hoặc 1-unit placeholder cho analytics
 
-## 5) Fair use
-(v0.1 không dùng “Unlimited*”, giữ mục này để tham khảo nếu sau này muốn đổi model pricing.)
-
-
-## 6) Normalize formula (chốt cứng v0.1)
-
-### 6.1 VibeTokens formula
-Mỗi provider call tạo `provider_tokens`:
-- `in_tokens`, `out_tokens`
-Tính VibeTokens:
-- `raw = in_tokens * in_mul + out_tokens * out_mul`
-- `vibe_tokens = ceil(raw * model_factor)`
-
-Defaults (v0.1):
-- `in_mul = 1.0`
-- `out_mul = 1.0`
-- `model_factor` lấy từ config theo (provider, model). Base factor = 1.0.
-
-> Lý do: cùng “token” nhưng cost khác nhau giữa models; `model_factor` cho phép pricing thống nhất.
-
-### 6.2 Charge timing (async jobs)
-- Charge **khi provider call complete** (không charge lúc enqueue).
-- Nếu job fail trước provider call → 0 token.
-- Nếu job retry và gọi provider nhiều lần → charge theo tokens *thực tế* (không double-count cùng request).
-- Pre-check quota:
-  - dùng `estimated_tokens` (heuristic) với safety factor 1.2 để tránh runaway.
-  - reconcile khi complete.
-
-## 7) Pricing (chốt cứng v0.1 — token caps, không “Unlimited”)
-- **Free**: 100k VibeTokens/mo
-- **Pro ($9/mo)**: 5,000,000 VibeTokens/mo
-- **Team ($29/mo)**: 20,000,000 VibeTokens/mo + seat-based
-
-> “Unlimited*” bị loại khỏi v0.1 để tránh ambiguity và cost risk.
-
+## 6) Future pricing note
+Nếu sau này khôi phục quota enforcement hoặc paid gating:
+- không được phá public MCP tool contract
+- phải coi đó là policy-layer change, không phải transport/schema breaking change

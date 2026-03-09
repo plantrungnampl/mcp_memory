@@ -1,53 +1,47 @@
-# 02 — MCP Protocol (Remote Server)
+# 02 — MCP Protocol
 
 ## 1) Endpoint
-- Primary: **Streamable HTTP**
-- URL: `https://mcp.viberecall.ai/p/{project_id}/mcp`
+- Primary endpoint: `https://api.<domain>/p/{project_id}/mcp`
+- Transport hiện tại: **Streamable HTTP** qua FastMCP
 
-## 2) Transport behavior
-- POST: gửi message (JSON) lên MCP server
-- GET: optional mở stream (SSE) nếu server muốn push notifications
+## 2) Lifecycle
+1. `initialize`
+2. `notifications/initialized`
+3. `tools/list`
+4. `tools/call`
 
-> Nếu client không dùng SSE: vẫn hoạt động bình thường (request/response via POST).
+Server trả:
+- `protocolVersion = 2025-06-18`
+- `serverInfo.name = viberecall-mcp`
+- `capabilities.tools.listChanged = true`
 
-## 3) Versioning & negotiation
-- Server hỗ trợ nhiều phiên bản MCP (primary + fallback).
-- Client gửi `initialize` với version nó support.
-- Server trả về version negotiated.
-- Server có thể enforce header `MCP-Protocol-Version` cho các request sau handshake (nếu client gửi).
+## 3) Transport behavior hiện tại
+- `POST` là đường chính cho MCP messages
+- `GET` vẫn thuộc Streamable HTTP surface của FastMCP
+- client phải chấp nhận media types MCP phù hợp; request không đúng có thể nhận `406`
+- `MCP-Protocol-Version` được chấp nhận và validate sau initialize; thiếu header hiện tại không hard-fail nhưng bị log warning
 
-## 4) Lifecycle bắt buộc
-1. Client → `initialize`
-2. Server → `InitializeResult` (capabilities + serverInfo)
-3. Client → `notifications/initialized`
-4. Client → `tools/list`
-5. Client → `tools/call`
+## 4) Session semantics
+- Session là **stateful**
+- Nếu client gửi `mcp-session-id` cũ sau backend reload hoặc reconnect sai cách, server có thể trả `404 Session not found`
+- Cách khôi phục chuẩn là reconnect và chạy `initialize` lại để lấy session mới
 
-## 5) Capabilities
-### Tools (required)
-- `tools/list` (cursor pagination)
+## 5) Auth semantics
+- Path luôn chứa `project_id`
+- Tool methods yêu cầu bearer PAT gắn đúng project
+- `initialize` là lifecycle handshake; phần auth enforcement quan trọng nằm ở tool-capable request path sau handshake
+
+## 6) Capabilities
+Current release chỉ coi **Tools** là capability public:
+- `tools/list`
 - `tools/call`
 
-### Optional (để “MCP full” hơn)
-- Resources: expose timeline/export như “readable objects” + subscribe
-- Prompts: workflow templates (recall-before-plan, save-after-decision)
-
-## 6) Notifications
-- `notifications/tools/list_changed`: khi plan thay đổi → tool set thay đổi
-- (optional) `notifications/resources/updated`: timeline/export updated nếu bật resources
+Không cam kết public support cho:
+- Resources
+- Prompts
+- custom server-push workflows
 
 ## 7) Error strategy
-- Tool errors trả `isError=true` trong tool result
-- Đồng thời trả HTTP status phù hợp khi transport cho phép (401/403/429/500)
-
-
-## 8) Product surface (chốt cứng v0.1)
-
-Để khóa scope MVP rõ ràng:
-- **Transport**: chỉ **Streamable HTTP** (1 endpoint). Không triển khai SSE server-push riêng trong v0.1.
-- **Capabilities**: chỉ bật **Tools** (`tools/list`, `tools/call`).  
-  - **Resources** và **Prompts**: out-of-scope v0.1 (phase sau).
-- **MCP-Protocol-Version**: server **enforce** strict sau khi negotiate (client thiếu header vẫn được tolerate trong v0.1, nhưng log warning).
-
-Kết quả: MVP tập trung ship “tools native” ổn định, không kéo scope sang resources/prompts.
-
+- Tool result luôn dùng MCP text payload chứa JSON envelope chuẩn
+- Khi lỗi, payload giữ `ok=false` và `error.code/message/details`
+- Transport-level HTTP status vẫn có thể phản ánh lỗi auth/payload/origin/session khi FastMCP/FastAPI surface cho phép

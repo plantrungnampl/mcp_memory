@@ -1,110 +1,99 @@
-# 01 — Kiến trúc tổng thể (End-to-End)
+# 01 — Kiến trúc tổng thể
 
+## 1) Tech stack hiện tại
+- **Web control plane**: Next.js 16 App Router, Tailwind, shadcn/ui, TanStack Query
+- **Backend API + MCP runtime**: FastAPI + FastMCP
+- **Relational state**: Postgres
+- **Graph memory**: FalkorDB, với adapter `local | falkordb | graphiti`
+- **KV / rate limit / idempotency / queue broker**: Redis hoặc local fallback
+- **Async workers**: eager queue cho local, Celery cho production-shaped runtime
+- **Object storage**: local filesystem hoặc R2-compatible object store cho large episodes
 
-## 0) Tech stack (chốt cứng v0.1)
-- **Backend (MCP Gateway + API)**: **Python (FastMCP + FastAPI)**
-- **Graph DB**: **Neo4j** (multi-tenant theo *1 project = 1 database* hoặc *1 project = 1 graph* tuỳ topology Neo4j)
-- **Queue/Cache**: Redis + Celery
-- **Metadata**: Supabase Postgres
-  
-## Frontend (Control Plane - app.viberecall.ai)
-- Framework: Next.js 16.1+ (App Router)
-- UI: Tailwind CSS + shadcn/ui + Radix
-- Auth: Supabase Auth (GitHub + Email)
-- State: TanStack Query + Zustand
-- Deploy: cùng Fly.io với backend (monorepo)
+## 2) System split
 
-## 1) Phân tách Control Plane / Data Plane
+### A. Web control plane — `apps/web`
+Chịu trách nhiệm:
+- Supabase-authenticated session
+- projects directory và project workspace
+- token lifecycle
+- usage analytics, API logs, exports, maintenance actions
+- graph playground và timeline UI
+- BFF route handlers dưới `app/api/projects/**`
 
-### Control Plane — `app.viberecall.ai`
-Chức năng:
-- Auth (GitHub/Google)
-- Quản lý Projects
-- Quản lý Tokens (create/rotate/revoke)
-- Plan/Billing + Usage dashboard
-- Webhooks (optional), Audit log
+### B. Control-plane API — `apps/mcp-api`
+Chịu trách nhiệm:
+- owner-scoped CRUD/read endpoints cho projects, tokens, usage, graph, logs, exports
+- signed assertion verification cho request từ web
+- request correlation qua `X-Request-Id`
+- enqueue các background jobs cho export, retention, purge, inline migration
 
-Data store:
-- Postgres (Supabase) lưu metadata: users/projects/tokens/plans/usage/audit/webhooks
+### C. MCP data plane — `apps/mcp-api`
+Chịu trách nhiệm:
+- Streamable HTTP MCP endpoint tại `/p/{project_id}/mcp`
+- PAT auth, project binding, origin/payload checks, rate limiting, idempotency
+- dispatch 11 public `viberecall_*` tools
+- normalize tool outputs theo output envelope ổn định
 
-### Data Plane — `mcp.viberecall.ai``
-Chức năng:
-- MCP Remote Server (Streamable HTTP)
-- Auth middleware (Bearer PAT)
-- Tenancy routing (project → graph)
-- Rate limit + quota + metering
-- Tool routing → Memory Core (Graphiti + Graph DB)
-- Background jobs: enrichment/export/webhook
+### D. Worker runtime
+Chịu trách nhiệm:
+- ingest episode vào graph memory
+- temporal update
+- export generation
+- retention / purge / migrate-inline-to-object
+- async repo indexing
 
-## 2) Thành phần chính
+## 3) Storage topology
 
+### Postgres
+Lưu canonical relational state:
+- projects, owners, tokens
+- episodes, usage events, audit logs
+- exports, webhooks
+- code index runs/files/entities/chunks
 
+### FalkorDB
+Lưu graph memory theo project:
+- episodes, facts, entities, provenance relationships
+- graph state được truy cập qua memory-core adapter
 
-## 2.1) Graph DB (chốt cứng v0.1)
+### Redis
+Dùng cho:
+- rate limiting
+- idempotency store
+- Celery broker/result backend trong production-shaped runtime
 
-**Vendor:** **Neo4j**  
-**Isolation mode:** **1 project = 1 Neo4j database** (multi-database).  
-- `db_name = "vr_" + project_id` (sanitize)  
-- Gateway/adapter luôn route theo `db_name` (không nhận project_id/group_id từ client).
+### Object storage
+Dùng cho:
+- raw episode content vượt threshold inline
+- export artifact JSON
 
-**Storage model (canonical, không mơ hồ):** Facts là **nodes** (không phải edge) để:
-- gắn bi-temporal fields (`valid_at`, `invalid_at`, `ingested_at`) và provenance rõ ràng
-- dedupe, update temporal, export ổn định
+## 4) Runtime modes
+- `MEMORY_BACKEND=local`: local in-memory adapter cho dev/test
+- `MEMORY_BACKEND=falkordb`: canonical runtime graph backend
+- `MEMORY_BACKEND=graphiti`: graphiti-backed mode nhưng vẫn phụ thuộc graph runtime/dependency path hiện tại
+- `QUEUE_BACKEND=eager`: job chạy inline
+- `QUEUE_BACKEND=celery`: job chạy qua worker riêng
 
-**Canonical labels/relationships**
-- `(:Episode {episode_id, reference_time, ingested_at, content_ref, metadata_json, ...})`
-- `(:Entity {entity_id, type, name, aliases[], ...})`
-- `(:Fact {fact_id, text, valid_at, invalid_at, ingested_at, confidence, ...})`
-Relationships:
-- `(Episode)-[:MENTIONS]->(Entity)`
-- `(Episode)-[:SUPPORTS]->(Fact)`
-- `(Fact)-[:ABOUT]->(Entity)` (1..N entities)
-
-**Indexes / constraints (v0.1)**
-- UNIQUE: `Episode(episode_id)`, `Entity(entity_id)`, `Fact(fact_id)`
-- BTREE: `Entity(type, name)` ; `Fact(valid_at)` ; `Fact(invalidated_at)` ; `Episode(ingested_at)`
-- FULLTEXT: `Fact.text`, `Episode.content_ref_or_text` (tuỳ storage)
-- (Optional) VECTOR: `Fact.embedding`, `Episode.embedding` (nếu dùng vector index trong Neo4j)
-
-> Note: FalkorDB chỉ là *future alternative* (không nằm trong v0.1) để tránh ambiguity + licensing discussion trong scope v0.1.
-
+## 5) Current deployment topology
 ```text
-IDE (Cursor / Claude Code / Windsurf)
-  ↓ MCP (Streamable HTTP + optional SSE)
-MCP Gateway (stateless)
-  ↓ internal calls + queue
-Memory Core (Graphiti adapter)
-  ↓
-Graph DB (Neo4j; 1 project = 1 database)
-  ↑↓
-Redis (rate limit, idempotency, queue)
-  ↑↓
-Metadata DB (Supabase Postgres) + Stripe webhook
+Browser / IDE client
+  -> Vercel (apps/web)
+      -> BFF route handlers + Server Actions
+          -> Render API (apps/mcp-api)
+              -> Postgres
+              -> FalkorDB
+              -> Redis
+              -> Celery worker
 ```
 
-## 3) Trách nhiệm từng service
+## 6) Web architecture notes
+- `app/projects/(app-shell)` giữ shared shell và query provider
+- `(workspace)` và `(ops)` route groups tách workspace tabs khỏi ops surfaces
+- project detail mặc định redirect vào Graph Playground
+- BFF handlers dưới `app/api/projects/**` giữ auth ở server-side và chuẩn hóa lỗi upstream
 
-### MCP Gateway (stateless)
-- TLS termination
-- Validate MCP headers + lifecycle
-- Verify `Authorization: Bearer ...`
-- Resolve `project_id`, `scopes`, `plan`
-- Rate limit / payload cap / idempotency
-- Route `tools/call` đến handler tương ứng
-- Ghi audit & usage events
-
-### Memory Core (Graphiti adapter)
-- Map tool inputs → Graphiti operations
-- Bind graph theo tenant (không tin input group_id từ client)
-- Temporal semantics (reference_time / valid_at / as_of_ingest)
-- Normalize outputs (fact/entity/provenance)
-
-### Workers
-- `ingest_job`: add_episode + extract facts/entities
-- `update_fact_job`: invalidate old + create new
-- `export_job`: dump graph → object storage → signed URL
-- `webhook_job`: retries + DLQ
-
-## 4) Lưu ý kiến trúc
-- “<200ms latency” áp dụng cho `save` nếu **fast-ack** + async.
-- Search có thể >200ms, target theo SLO (p95 < 1.5s).
+## 7) Backend architecture notes
+- FastMCP được mount trực tiếp vào FastAPI app
+- control-plane router và MCP runtime cùng chia sẻ request correlation / env contract
+- health probe báo `ok | degraded` theo dependency state
+- graph-backed tool failures được chuẩn hóa thành deterministic runtime errors thay vì lỗi opaque

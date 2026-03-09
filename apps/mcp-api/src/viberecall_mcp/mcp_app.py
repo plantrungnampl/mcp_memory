@@ -4,7 +4,11 @@ import json
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
+from datetime import date, datetime
+from decimal import Decimal
+from enum import Enum
 from typing import Any
+from uuid import UUID
 
 import structlog
 from fastmcp import FastMCP
@@ -38,7 +42,9 @@ from viberecall_mcp.tool_access import filter_tools_for_plan
 from viberecall_mcp.tool_handlers import (
     handle_delete_episode,
     handle_get_context_pack,
+    handle_get_fact,
     handle_get_status,
+    handle_get_operation,
     handle_get_facts,
     handle_index_repo,
     handle_index_status,
@@ -47,6 +53,8 @@ from viberecall_mcp.tool_handlers import (
     handle_search_entities,
     handle_timeline,
     handle_update_fact,
+    handle_working_memory_get,
+    handle_working_memory_patch,
 )
 from viberecall_mcp.tool_registry import TOOL_DEFINITIONS
 
@@ -97,9 +105,21 @@ def runtime_error_to_envelope(request_id: str, exc: Exception) -> dict:
     return tool_error(request_id, "INTERNAL", str(exc))
 
 
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, (UUID, Decimal, Enum)):
+        return str(value)
+    return value
+
+
 def as_tool_result(payload: dict) -> ToolResult:
     return ToolResult(
-        content=[types.TextContent(type="text", text=json.dumps(payload))],
+        content=[types.TextContent(type="text", text=json.dumps(_json_safe(payload)))],
     )
 
 
@@ -255,6 +275,18 @@ async def run_tool(tool_name: str, arguments: dict[str, Any]) -> ToolResult:
             try:
                 if tool_name == "viberecall_save":
                     payload = await handle_save(
+                        tool_name=tool_name,
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                        payload_hash=args_hash,
+                        idempotency_key=request_context.idempotency_key
+                        or arguments.get("idempotency_key"),
+                    )
+                elif tool_name == "viberecall_save_episode":
+                    payload = await handle_save(
+                        tool_name=tool_name,
                         request_id=request_context.request_id,
                         project_id=request_context.project_id or "",
                         token=token,
@@ -265,6 +297,15 @@ async def run_tool(tool_name: str, arguments: dict[str, Any]) -> ToolResult:
                     )
                 elif tool_name == "viberecall_search":
                     payload = await handle_search(
+                        tool_name=tool_name,
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_search_memory":
+                    payload = await handle_search(
+                        tool_name=tool_name,
                         request_id=request_context.request_id,
                         project_id=request_context.project_id or "",
                         token=token,
@@ -279,6 +320,7 @@ async def run_tool(tool_name: str, arguments: dict[str, Any]) -> ToolResult:
                     )
                 elif tool_name == "viberecall_update_fact":
                     payload = await handle_update_fact(
+                        tool_name=tool_name,
                         request_id=request_context.request_id,
                         project_id=request_context.project_id or "",
                         token=token,
@@ -301,6 +343,13 @@ async def run_tool(tool_name: str, arguments: dict[str, Any]) -> ToolResult:
                         token=token,
                         arguments=handler_arguments,
                     )
+                elif tool_name == "viberecall_get_operation":
+                    payload = await handle_get_operation(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
                 elif tool_name == "viberecall_delete_episode":
                     payload = await handle_delete_episode(
                         request_id=request_context.request_id,
@@ -317,6 +366,22 @@ async def run_tool(tool_name: str, arguments: dict[str, Any]) -> ToolResult:
                     )
                 elif tool_name == "viberecall_index_status":
                     payload = await handle_index_status(
+                        tool_name=tool_name,
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_get_index_status":
+                    payload = await handle_index_status(
+                        tool_name=tool_name,
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_get_fact":
+                    payload = await handle_get_fact(
                         request_id=request_context.request_id,
                         project_id=request_context.project_id or "",
                         token=token,
@@ -331,6 +396,20 @@ async def run_tool(tool_name: str, arguments: dict[str, Any]) -> ToolResult:
                     )
                 elif tool_name == "viberecall_get_context_pack":
                     payload = await handle_get_context_pack(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_working_memory_get":
+                    payload = await handle_working_memory_get(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_working_memory_patch":
+                    payload = await handle_working_memory_patch(
                         request_id=request_context.request_id,
                         project_id=request_context.project_id or "",
                         token=token,
@@ -454,9 +533,14 @@ def build_fastmcp_server() -> FastMCP:
     return server
 
 
-def build_fastmcp_http_app():
+def build_fastmcp_http_app(
+    *,
+    path: str = "/p/{project_id}/mcp",
+    stateless_http: bool = False,
+):
     server = build_fastmcp_server()
     return server.http_app(
-        path="/p/{project_id}/mcp",
+        path=path,
         transport="streamable-http",
+        stateless_http=stateless_http,
     )

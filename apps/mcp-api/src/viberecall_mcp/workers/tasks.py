@@ -35,6 +35,12 @@ from viberecall_mcp.repositories.exports import (
     mark_export_failed,
     mark_export_processing,
 )
+from viberecall_mcp.repositories.operations import (
+    complete_operation,
+    fail_operation,
+    merge_operation_metadata,
+    mark_operation_running,
+)
 from viberecall_mcp.repositories.maintenance import (
     delete_all_project_episodes,
     delete_all_project_exports,
@@ -96,6 +102,13 @@ def _format_public_export_error(exc: Exception) -> str:
         return "Export timed out while collecting project memory. Please retry in a few minutes."
 
     return "Export failed unexpectedly. Please retry in a few seconds."
+
+
+def _provider_trace_from_result(result: dict | None) -> dict | None:
+    if not isinstance(result, dict):
+        return None
+    provider_trace = result.get("provider_trace")
+    return provider_trace if isinstance(provider_trace, dict) else None
 
 
 async def _collect_all_facts(project_id: str) -> list[dict]:
@@ -217,7 +230,14 @@ async def _delete_episode_refs(refs: list[str]) -> int:
     return deleted
 
 
-async def run_ingest_job(*, episode_id: str, project_id: str, request_id: str, token_id: str | None) -> dict:
+async def run_ingest_job(
+    *,
+    episode_id: str,
+    project_id: str,
+    request_id: str,
+    token_id: str | None,
+    operation_id: str | None = None,
+) -> dict:
     started = time.perf_counter()
     async with SessionLocal() as session:
         episode = await get_episode(session, episode_id)
@@ -234,14 +254,19 @@ async def run_ingest_job(*, episode_id: str, project_id: str, request_id: str, t
             return {"status": "missing"}
 
         try:
+            if operation_id:
+                await mark_operation_running(session, operation_id=operation_id)
+                await session.commit()
             if not episode.get("content") and episode.get("content_ref"):
                 episode["content"] = await get_episode_text(object_key=str(episode["content_ref"]))
             result = await get_memory_core().ingest_episode(project_id, episode)
+            provider_trace = _provider_trace_from_result(result)
             await mark_episode_enrichment_status(
                 session,
                 episode_id=episode_id,
                 status="complete",
                 summary=result.get("summary"),
+                commit=False,
             )
             await create_usage_event(
                 session,
@@ -249,6 +274,9 @@ async def run_ingest_job(*, episode_id: str, project_id: str, request_id: str, t
                 token_id=token_id,
                 tool="viberecall_save",
                 vibe_tokens=1,
+                provider=provider_trace.get("provider") if provider_trace else None,
+                model=provider_trace.get("llm_model") if provider_trace else None,
+                commit=False,
             )
             await insert_audit_log(
                 session,
@@ -257,7 +285,21 @@ async def run_ingest_job(*, episode_id: str, project_id: str, request_id: str, t
                 status="complete",
                 project_id=project_id,
                 token_id=token_id,
+                commit=False,
             )
+            if operation_id:
+                if provider_trace:
+                    await merge_operation_metadata(
+                        session,
+                        operation_id=operation_id,
+                        metadata_patch={"provider_trace": provider_trace},
+                    )
+                await complete_operation(
+                    session,
+                    operation_id=operation_id,
+                    result_payload={"episode_id": episode_id, "status": "SUCCEEDED", "summary": result.get("summary")},
+                )
+            await session.commit()
             job_duration_ms.labels(job="ingest").observe((time.perf_counter() - started) * 1000)
             return result
         except Exception as exc:  # noqa: BLE001
@@ -265,6 +307,7 @@ async def run_ingest_job(*, episode_id: str, project_id: str, request_id: str, t
                 session,
                 episode_id=episode_id,
                 error=str(exc),
+                commit=False,
             )
             await insert_audit_log(
                 session,
@@ -273,7 +316,15 @@ async def run_ingest_job(*, episode_id: str, project_id: str, request_id: str, t
                 status="failed",
                 project_id=project_id,
                 token_id=token_id,
+                commit=False,
             )
+            if operation_id:
+                await fail_operation(
+                    session,
+                    operation_id=operation_id,
+                    error_payload={"code": "INGEST_FAILED", "message": str(exc)},
+                )
+            await session.commit()
             job_duration_ms.labels(job="ingest").observe((time.perf_counter() - started) * 1000)
             raise
 
@@ -288,10 +339,14 @@ async def run_update_fact_job(
     new_text: str,
     effective_time: str,
     reason: str | None,
+    operation_id: str | None = None,
 ) -> dict:
     started = time.perf_counter()
     async with SessionLocal() as session:
         try:
+            if operation_id:
+                await mark_operation_running(session, operation_id=operation_id)
+                await session.commit()
             result = await get_memory_core().update_fact(
                 project_id,
                 fact_id=fact_id,
@@ -306,6 +361,7 @@ async def run_update_fact_job(
                 token_id=token_id,
                 tool="viberecall_update_fact",
                 vibe_tokens=1,
+                commit=False,
             )
             await insert_audit_log(
                 session,
@@ -315,10 +371,18 @@ async def run_update_fact_job(
                 project_id=project_id,
                 token_id=token_id,
                 tool_name="viberecall_update_fact",
+                commit=False,
             )
+            if operation_id:
+                await complete_operation(
+                    session,
+                    operation_id=operation_id,
+                    result_payload=result,
+                )
+            await session.commit()
             job_duration_ms.labels(job="update_fact").observe((time.perf_counter() - started) * 1000)
             return result
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             await insert_audit_log(
                 session,
                 request_id=request_id,
@@ -327,7 +391,15 @@ async def run_update_fact_job(
                 project_id=project_id,
                 token_id=token_id,
                 tool_name="viberecall_update_fact",
+                commit=False,
             )
+            if operation_id:
+                await fail_operation(
+                    session,
+                    operation_id=operation_id,
+                    error_payload={"code": "UPDATE_FACT_FAILED", "message": str(exc)},
+                )
+            await session.commit()
             job_duration_ms.labels(job="update_fact").observe((time.perf_counter() - started) * 1000)
             raise
 
@@ -662,7 +734,13 @@ async def run_index_job(*, index_id: str) -> dict:
     retry_jitter=True,
     max_retries=5,
 )
-def ingest_episode_task(episode_id: str, project_id: str, request_id: str, token_id: str | None) -> dict:
+def ingest_episode_task(
+    episode_id: str,
+    project_id: str,
+    request_id: str,
+    token_id: str | None,
+    operation_id: str | None = None,
+) -> dict:
     import asyncio
 
     return asyncio.run(
@@ -671,6 +749,7 @@ def ingest_episode_task(episode_id: str, project_id: str, request_id: str, token
             project_id=project_id,
             request_id=request_id,
             token_id=token_id,
+            operation_id=operation_id,
         )
     )
 
@@ -691,6 +770,7 @@ def update_fact_task(
     new_text: str,
     effective_time: str,
     reason: str | None,
+    operation_id: str | None = None,
 ) -> dict:
     import asyncio
 
@@ -704,6 +784,7 @@ def update_fact_task(
             new_text=new_text,
             effective_time=effective_time,
             reason=reason,
+            operation_id=operation_id,
         )
     )
 
@@ -793,8 +874,14 @@ def migrate_inline_to_object_task(project_id: str, request_id: str, token_id: st
     retry_jitter=True,
     max_retries=5,
 )
-def index_repo_task(index_id: str, project_id: str, request_id: str, token_id: str | None) -> dict:
+def index_repo_task(
+    index_id: str,
+    project_id: str,
+    request_id: str,
+    token_id: str | None,
+    operation_id: str | None = None,
+) -> dict:
     import asyncio
 
     _ = (project_id, request_id, token_id)
-    return asyncio.run(run_index_job(index_id=index_id))
+    return asyncio.run(run_index_job(index_id=index_id, operation_id=operation_id))

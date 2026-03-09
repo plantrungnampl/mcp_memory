@@ -1,24 +1,27 @@
-# Appendix D — Capacity assumptions & SLO sizing (v0.1)
+# Appendix D — Capacity assumptions & SLO sizing
 
-## 1) Target load (MVP)
-- Projects: 1,000
-- Daily active projects: 200
-- Peak concurrent IDE sessions: 300
-- Average tool calls: 1 rps overall
-- Peak burst: 30 rps overall (short bursts)
-- Save/search ratio: 40% save / 60% search
+## 1) Target load
+- Projects: 1,000+
+- Daily active projects: vài trăm
+- Peak concurrent MCP sessions: vài trăm
+- Peak short-burst tool traffic: hàng chục RPS
 
-## 2) Dataset size
-- Episodes per project: median 2,000 (MVP), p95 20,000
-- Facts per project: ~ 5–20x episodes (tuỳ extraction)
-- Storage:
-  - median raw text per episode: 2–8KB
+## 2) Dataset assumptions
+- Episodes per project: median vài nghìn, p95 hàng chục nghìn
+- Facts per project: cao hơn episodes nhiều lần tùy enrichment
+- Code index snapshot: hàng trăm đến hàng nghìn files, hàng nghìn symbols/entities/chunks
 
 ## 3) SLO interpretation
-- `save` ACK p95 < 200ms: achievable vì không đợi LLM/embeddings.
-- `search` p95 < 1.5s: với BM25 + (optional vector) + cache; p95 phụ thuộc Neo4j index + cold starts.
-- Ingest completion p95 < 10s: phụ thuộc queue depth và provider latency.
+- `save` ACK p95 < 200ms khi queue path khỏe
+- `search` p95 < 1.5s phụ thuộc graph runtime, filters, và recent-episode merge
+- ingest completion p95 < 10s phụ thuộc queue depth và backend dependencies
+- index completion phụ thuộc repo size và mode `snapshot | diff`
 
-## 4) Benchmark plan
-- Synthetic workload theo target load
-- Track: p50/p95 tool latency, queue depth, ingest duration, Neo4j query time, token burn rate.
+## 4) What to track
+- p50/p95 initialize latency
+- p50/p95 tool latency theo tool
+- queue depth theo lane
+- worker job duration
+- FalkorDB dependency health / graph latency
+- index run duration và READY snapshot freshness
+- token burn / usage growth per project

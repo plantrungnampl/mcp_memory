@@ -22,6 +22,10 @@ def episode_storage_key(project_id: str, episode_id: str) -> str:
     return f"projects/{project_id}/episodes/{episode_id}.txt"
 
 
+def bundle_storage_key(project_id: str, bundle_id: str) -> str:
+    return f"projects/{project_id}/index-bundles/{bundle_id}.zip"
+
+
 def _local_storage_root() -> Path:
     return Path(settings.object_local_dir).resolve()
 
@@ -68,34 +72,49 @@ def _r2_client():
 
 
 async def put_text(*, object_key: str, content: str) -> None:
+    await put_bytes(
+        object_key=object_key,
+        content=content.encode("utf-8"),
+        content_type="text/plain; charset=utf-8",
+    )
+
+
+async def put_bytes(*, object_key: str, content: bytes, content_type: str = "application/octet-stream") -> None:
     if settings.object_storage_mode == "local":
         path = _resolve_local_key_path(object_key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        path.write_bytes(content)
         return
     if settings.object_storage_mode != "r2":
         raise ObjectStorageError(f"Unsupported object storage mode: {settings.object_storage_mode}")
 
-    body = content.encode("utf-8")
     bucket = _require_bucket()
     try:
         await asyncio.to_thread(
             _r2_client().put_object,
             Bucket=bucket,
             Key=object_key,
-            Body=body,
-            ContentType="text/plain; charset=utf-8",
+            Body=content,
+            ContentType=content_type,
         )
     except (ClientError, BotoCoreError) as exc:
         raise ObjectStorageError(f"Failed to write object: {object_key}") from exc
 
 
 async def get_text(*, object_key: str) -> str:
+    payload = await get_bytes(object_key=object_key)
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ObjectStorageError(f"Failed to decode object: {object_key}") from exc
+
+
+async def get_bytes(*, object_key: str) -> bytes:
     if settings.object_storage_mode == "local":
         path = _resolve_local_key_path(object_key)
         if not path.exists():
             raise FileNotFoundError(object_key)
-        return path.read_text(encoding="utf-8")
+        return path.read_bytes()
     if settings.object_storage_mode != "r2":
         raise ObjectStorageError(f"Unsupported object storage mode: {settings.object_storage_mode}")
 
@@ -106,14 +125,13 @@ async def get_text(*, object_key: str) -> str:
             Bucket=bucket,
             Key=object_key,
         )
-        payload = await asyncio.to_thread(response["Body"].read)
-        return payload.decode("utf-8")
+        return await asyncio.to_thread(response["Body"].read)
     except ClientError as exc:
         code = (exc.response.get("Error") or {}).get("Code")
         if code in {"NoSuchKey", "404"}:
             raise FileNotFoundError(object_key) from exc
         raise ObjectStorageError(f"Failed to read object: {object_key}") from exc
-    except (BotoCoreError, UnicodeDecodeError) as exc:
+    except BotoCoreError as exc:
         raise ObjectStorageError(f"Failed to decode object: {object_key}") from exc
 
 

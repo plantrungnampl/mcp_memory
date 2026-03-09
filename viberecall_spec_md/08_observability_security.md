@@ -1,46 +1,57 @@
 # 08 — Observability & Security
 
-## 1) Logs (structured)
-Mỗi request/tool call ghi:
-- `request_id`, `mcp_session_id`
-- `project_id`, `token_id`
-- `tool_name`, `args_hash`
-- `latency_ms`, `status`, `error_code`
+## 1) Structured logs
+Các request/tool calls hiện cần correlation qua:
+- `request_id`
+- `project_id`
+- `token_id` khi có
+- `tool_name`
+- `status`
+- `latency_ms`
 
-## 2) Metrics (Prometheus)
-- `tool_call_latency_ms{tool=...}` (p50/p95)
-- `mcp_initialize_latency_ms`
-- `rate_limited_count`
-- `queue_depth{queue=...}`
-- `job_duration_ms{job=...}`
-- `graph_db_latency_ms`
-- `tokens_burn_rate{project=...}`
+Control-plane requests từ web cũng log:
+- assertion attached hay không
+- user identity presence
+- backend response request id
 
-## 3) Tracing (OpenTelemetry)
-Trace chain:
-MCP request → auth → quota → store raw → enqueue → worker → graph write
+## 2) Metrics
+Các metric classes quan trọng:
+- MCP initialize latency
+- tool call latency
+- queue depth
+- worker job duration
+- token burn gauge
+- graph/runtime dependency health
 
-## 4) Security checklist (MCP-specific)
-- TLS only + HSTS
-- Validate `Origin` allowlist (DNS rebinding mitigation)
-- Bearer token required on all MCP calls
-- Strict token ↔ project binding (URL path must match token mapping)
-- Payload size caps
-- Rate limit per token + per project
-- Idempotency for writes
-- Token rotation + revoke
-- Audit logs (immutable-ish)
+## 3) Health & degradation
+- `/healthz` báo `ok` hoặc `degraded`
+- graph dependency outages phải surfaced rõ ràng
+- graph-backed tool failures phải trả deterministic runtime errors thay vì opaque internal failures
+- `get_status` phải phản ánh dependency degradation tương tự health probe
 
-## 5) Data retention & deletion
-- Retention per project (days)
-- Purge project:
-  - drop graph
-  - delete raw episodes (DB/object storage)
-  - delete exports
-  - scrub sensitive content in logs (store hashes only)
+## 4) Security controls
+- TLS only ở deployed environment
+- strict token -> project binding
+- signed `X-Control-Plane-Assertion` giữa web và backend
+- `X-Request-Id` echo để debug mà không log secret payload
+- payload size caps
+- rate limit per token và per project
+- idempotency cho write paths
+- revoke / expiry enforcement cho PAT
+- origin allowlist khi được cấu hình
 
-## 6) Dependency risk notes
-- Graph DB vendor chốt v0.1: **Neo4j** (per-project database). Theo dõi health/latency/heap/page cache.
+## 5) Session / transport risks
+- stale `mcp-session-id` có thể gây `404 Session not found`
+- wrong `Accept` negotiation có thể gây `406`
+- thiếu `MCP-Protocol-Version` hiện chỉ warning, nhưng nên được client gửi đúng
 
-- Upstream MCP/Graphiti changes: pin versions, keep `viberecall_*` tools stable.
-- Graph DB licensing: đảm bảo legal path nếu public SaaS.
+## 6) Dependency risks
+- FalkorDB availability là critical dependency cho graph-backed runtime
+- Graphiti mode vẫn phụ thuộc graph runtime path hiện tại
+- Redis/Celery là critical trong production-shaped async runtime
+- object storage outage ảnh hưởng export và large-episode paths
+
+## 7) Audit policy
+- MCP tools và control-plane actions đều ghi audit logs
+- API Logs operator-facing page hiện chỉ tập trung vào MCP `tools/call`
+- raw internal audit rows vẫn có thể tồn tại cho vận hành backend

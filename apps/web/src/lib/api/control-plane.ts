@@ -4,6 +4,7 @@ import type {
   ApiLogsRange,
   ApiLogsStatusFilter,
   CreatedProjectResult,
+  GraphViewMode,
   MaintenanceJob,
   ProjectGraphEntityDetail,
   ProjectGraphPayload,
@@ -522,6 +523,7 @@ export async function getProjectGraph(
   user: ControlPlaneUser,
   projectId: string,
   input?: {
+    mode?: GraphViewMode;
     query?: string | null;
     entityTypes?: string[];
     lastDays?: number | null;
@@ -531,6 +533,7 @@ export async function getProjectGraph(
   },
 ): Promise<ProjectGraphPayload> {
   const params = new URLSearchParams();
+  params.set("mode", input?.mode ?? "concepts");
   if (input?.query && input.query.trim()) {
     params.set("q", input.query.trim());
   }
@@ -560,6 +563,12 @@ export async function getProjectGraph(
   const payload = await parseJson<{
     graph: {
       generated_at: string;
+      mode: GraphViewMode;
+      empty_reason: ProjectGraphPayload["emptyReason"];
+      available_modes: GraphViewMode[];
+      node_primary_label: string;
+      node_secondary_label: string;
+      edge_support_label: string;
       entity_count: number;
       relationship_count: number;
       truncated: boolean;
@@ -586,6 +595,12 @@ export async function getProjectGraph(
 
   return {
     generatedAt: payload.graph.generated_at,
+    mode: payload.graph.mode,
+    emptyReason: payload.graph.empty_reason,
+    availableModes: payload.graph.available_modes,
+    nodePrimaryLabel: payload.graph.node_primary_label,
+    nodeSecondaryLabel: payload.graph.node_secondary_label,
+    edgeSupportLabel: payload.graph.edge_support_label,
     entityCount: payload.graph.entity_count,
     relationshipCount: payload.graph.relationship_count,
     truncated: payload.graph.truncated,
@@ -618,12 +633,14 @@ export async function getProjectGraphEntityDetail(
   projectId: string,
   entityId: string,
   input?: {
+    mode?: GraphViewMode;
     factLimit?: number;
     episodeLimit?: number;
     maxFactsScan?: number;
   },
 ): Promise<ProjectGraphEntityDetail> {
   const params = new URLSearchParams();
+  params.set("mode", input?.mode ?? "concepts");
   if (typeof input?.factLimit === "number") {
     params.set("fact_limit", String(input.factLimit));
   }
@@ -643,12 +660,16 @@ export async function getProjectGraphEntityDetail(
     },
   );
   const payload = await parseJson<{
+    mode: GraphViewMode;
     entity: {
       entity_id: string;
       type: string;
       name: string;
       fact_count: number;
       episode_count: number;
+      file_paths?: string[];
+      language?: string | null;
+      kind?: string | null;
     };
     facts: Array<{
       fact_id: string;
@@ -669,15 +690,44 @@ export async function getProjectGraphEntityDetail(
       summary: string | null;
       metadata: Record<string, unknown>;
     }>;
+    related_entities: Array<{
+      entity_id: string;
+      type: string;
+      name: string;
+      relation_type: string;
+      support_count: number;
+    }>;
+    citations: Array<{
+      citation_id: string;
+      source_type: string;
+      entity_id: string;
+      file_path: string | null;
+      line_start: number | null;
+      line_end: number | null;
+      snippet: string | null;
+    }>;
+    symbols: Array<{
+      entity_id: string;
+      name: string;
+      kind: string | null;
+      file_path: string | null;
+      line_start: number | null;
+      line_end: number | null;
+      language: string | null;
+    }>;
   }>(response);
 
   return {
+    mode: payload.mode,
     entity: {
       entityId: payload.entity.entity_id,
       type: payload.entity.type,
       name: payload.entity.name,
       factCount: payload.entity.fact_count,
       episodeCount: payload.entity.episode_count,
+      filePaths: payload.entity.file_paths,
+      language: payload.entity.language,
+      kind: payload.entity.kind,
     },
     facts: payload.facts.map((fact) => ({
       factId: fact.fact_id,
@@ -697,6 +747,31 @@ export async function getProjectGraphEntityDetail(
       ingestedAt: episode.ingested_at,
       summary: episode.summary,
       metadata: episode.metadata,
+    })),
+    relatedEntities: payload.related_entities.map((entity) => ({
+      entityId: entity.entity_id,
+      type: entity.type,
+      name: entity.name,
+      relationType: entity.relation_type,
+      supportCount: entity.support_count,
+    })),
+    citations: payload.citations.map((citation) => ({
+      citationId: citation.citation_id,
+      sourceType: citation.source_type,
+      entityId: citation.entity_id,
+      filePath: citation.file_path,
+      lineStart: citation.line_start,
+      lineEnd: citation.line_end,
+      snippet: citation.snippet,
+    })),
+    symbols: payload.symbols.map((symbol) => ({
+      entityId: symbol.entity_id,
+      name: symbol.name,
+      kind: symbol.kind,
+      filePath: symbol.file_path,
+      lineStart: symbol.line_start,
+      lineEnd: symbol.line_end,
+      language: symbol.language,
     })),
   };
 }

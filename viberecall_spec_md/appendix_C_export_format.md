@@ -1,23 +1,23 @@
-# Appendix C — Export Format (Canonical JSON v1)
+# Appendix C — Export Format
 
-## 1) Scope (v0.1)
-- **Export only** (Import out-of-scope v0.1)
-- Format canonical: **JSON v1**
-- GraphML: out-of-scope v0.1
-- IDs: **preserve** (no remap trong v0.1)
+## 1) Scope
+- Export hiện là **control-plane workflow**
+- Format canonical hiện tại: **JSON v1**
+- Import vẫn out-of-scope
 
-## 2) Delivery
-- Tool call tạo `export_job`
-- Khi complete, trả **signed URL** (expires) trong tool result.
-- Resource URI: phase sau (khi bật Resources capability).
+## 2) Delivery flow
+1. owner tạo export qua control-plane route
+2. worker build artifact
+3. backend trả export record + signed download URL khi ready
 
-## 3) File schema (JSON v1)
+## 3) Artifact schema
 Top-level:
+
 ```json
 {
   "format": "viberecall-export",
   "version": "1.0",
-  "exported_at": "2026-02-28T12:00:00Z",
+  "exported_at": "2026-03-08T12:00:00Z",
   "project_id": "proj_...",
   "episodes": [],
   "entities": [],
@@ -26,9 +26,33 @@ Top-level:
 }
 ```
 
-Constraints:
-- `episode_id`, `entity_id`, `fact_id` phải stable và unique.
-- Facts phải có `valid_at` và có thể có `invalid_at=null`.
+### Episode row
+- `episode_id`
+- `reference_time`
+- `ingested_at`
+- `summary`
+- `metadata`
 
-## 4) Import semantics (future)
-- v0.2: thêm import với modes `PRESERVE_IDS` hoặc `FORK_WITH_PREFIX`.
+### Entity row
+- `entity_id`
+- `type`
+- `name`
+
+### Fact row
+- `fact_id`
+- `text`
+- `valid_at`
+- `invalid_at`
+- `ingested_at`
+- `provenance.episode_ids`
+- `provenance.reference_time`
+- `provenance.ingested_at`
+
+### Relationship row
+- `type`
+- `source_id`
+- `target_id`
+
+## 4) Notes
+- IDs được preserve
+- Export artifact hiện tập trung vào episodes/facts/entities/relationships, không bao gồm full code-index snapshot

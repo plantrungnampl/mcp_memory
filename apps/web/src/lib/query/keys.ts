@@ -1,4 +1,4 @@
-import type { ApiLogsRange, ApiLogsStatusFilter, UsageRange } from "@/lib/api/types";
+import type { ApiLogsRange, ApiLogsStatusFilter, GraphViewMode, UsageRange } from "@/lib/api/types";
 
 export const projectQueryKeys = {
   directory() {
@@ -10,14 +10,14 @@ export const projectQueryKeys = {
   usageAnalytics(projectId: string, range: UsageRange) {
     return ["projects", projectId, "usage", "analytics", range] as const;
   },
-  graph(projectId: string, input: { last30Days: boolean; maxNodes: number; maxEdges: number }) {
+  graph(projectId: string, input: { mode: GraphViewMode; last30Days: boolean; maxNodes: number; maxEdges: number }) {
     return ["projects", projectId, "graph", input] as const;
   },
   graphTimeline(projectId: string) {
     return ["projects", projectId, "graph", "timeline"] as const;
   },
-  graphEntityDetail(projectId: string, entityId: string | null) {
-    return ["projects", projectId, "graph", "entity", entityId] as const;
+  graphEntityDetail(projectId: string, entityId: string | null, mode: GraphViewMode) {
+    return ["projects", projectId, "graph", mode, "entity", entityId] as const;
   },
   opsDashboard(projectId: string) {
     return ["projects", projectId, "ops-dashboard"] as const;

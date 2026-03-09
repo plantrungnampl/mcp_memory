@@ -2,11 +2,12 @@
 
 import { Activity, Clock3, GitBranch } from "lucide-react";
 
-import type { ProjectGraphPayload } from "@/lib/api/types";
+import type { GraphViewMode, ProjectGraphPayload } from "@/lib/api/types";
 
 import { formatDateTime } from "./graph-playground-shared";
 
 type GraphPlaygroundHeroProps = {
+  mode: GraphViewMode;
   graphPayload: ProjectGraphPayload | undefined;
   isLoading: boolean;
   isError: boolean;
@@ -23,6 +24,7 @@ function pillTone(isError: boolean, hasData: boolean) {
 }
 
 export function GraphPlaygroundHero({
+  mode,
   graphPayload,
   isLoading,
   isError,
@@ -45,14 +47,15 @@ export function GraphPlaygroundHero({
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--vr-text-dim)]">
-              Knowledge Map
+              {mode === "concepts" ? "Knowledge Map" : "Code Topology"}
             </p>
             <h1 className="mt-3 text-[30px] font-bold leading-[1.02] text-[var(--vr-text-strong)] sm:text-[34px]">
-              Graph Playground
+              {mode === "concepts" ? "Graph Playground" : "Code Topology"}
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--vr-text-main)] sm:text-[15px]">
-              Explore your project&apos;s AI memory as an interactive map, with lighter default density, clearer filters,
-              and a contextual detail panel that appears only when you need to dig deeper.
+              {mode === "concepts"
+                ? "Explore your project&apos;s memory as a concept graph, with code and file-path entities removed from the default view."
+                : "Inspect module-level imports without turning file paths into top-level nodes. Files and symbols stay in the inspector."}
             </p>
           </div>
 

@@ -18,6 +18,7 @@ async def insert_audit_log(
     tool_name: str | None = None,
     args_hash: str | None = None,
     latency_ms: float | None = None,
+    commit: bool = True,
 ) -> None:
     await session.execute(
         text(
@@ -40,7 +41,8 @@ async def insert_audit_log(
             "latency_ms": latency_ms,
         },
     )
-    await session.commit()
+    if commit:
+        await session.commit()
 
 
 def _build_audit_logs_filters(

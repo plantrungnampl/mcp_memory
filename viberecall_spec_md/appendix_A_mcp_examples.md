@@ -1,33 +1,46 @@
-# Appendix A — MCP Message Examples (high-level)
+# Appendix A — MCP Message Examples
 
-> Ví dụ minh hoạ; payload exact sẽ phụ thuộc MCP SDK mà client dùng.
+> Ví dụ mức high-level; payload exact phụ thuộc MCP SDK.
 
 ## A1) Initialize
-Client → server: `initialize`
-- gửi clientInfo + supported versions
-Server → client: InitializeResult
-- serverInfo
-- capabilities: tools/resources/prompts (tùy bật)
+Client:
+- `initialize`
 
-Client → server: `notifications/initialized`
+Server:
+- `protocolVersion = 2025-06-18`
+- `serverInfo = viberecall-mcp`
+- `capabilities.tools.listChanged = true`
 
 ## A2) List tools
-Client → `tools/list`
-Server → list tools + inputSchema
+Client:
+- `tools/list`
 
-## A3) Call tool: viberecall_save
-Client → `tools/call`:
-- name: viberecall_save
-- arguments: content/reference_time/metadata
+Server:
+- trả 11 public `viberecall_*` tools với `inputSchema`
 
-Server → tool result:
-- content: [{type:"text", text:"{...json...}"}]
-- isError: false
+## A3) Call `viberecall_save`
+Client:
+- `tools/call`
+- `name = viberecall_save`
+- `arguments = { content, reference_time?, metadata?, idempotency_key? }`
 
-## A4) Call tool: viberecall_search
-Client → `tools/call` (search query + filters)
-Server → results + next_cursor
+Server:
+- text payload chứa output envelope
+- `result.status = "ACCEPTED"`
 
-## A5) Plan change → tools/list_changed
-Nếu user upgrade plan, server gửi notification:
-- client refresh `tools/list` để thấy tool mới/limits mới
+## A4) Call `viberecall_index_repo`
+Client:
+- `tools/call`
+- `name = viberecall_index_repo`
+- `arguments = { repo_path, mode, base_ref?, head_ref?, max_files? }`
+
+Server:
+- `result.status = "ACCEPTED"`
+- `result.index_id`
+- `result.job_id`
+
+## A5) Stale session recovery
+Nếu client gặp `404 Session not found`:
+- reconnect
+- chạy `initialize` lại
+- lấy session mới trước khi gọi `tools/list` hoặc `tools/call`

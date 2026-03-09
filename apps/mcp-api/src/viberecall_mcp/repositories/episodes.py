@@ -51,6 +51,7 @@ async def create_episode(
     summary: str | None = None,
     job_id: str | None = None,
     enrichment_status: str = "pending",
+    commit: bool = True,
 ) -> None:
     await session.execute(
         text(
@@ -74,7 +75,8 @@ async def create_episode(
             "enrichment_status": enrichment_status,
         },
     )
-    await session.commit()
+    if commit:
+        await session.commit()
 
 
 async def get_episode(session: AsyncSession, episode_id: str) -> dict | None:
@@ -148,6 +150,7 @@ async def mark_episode_enrichment_status(
     episode_id: str,
     status: str,
     summary: str | None = None,
+    commit: bool = True,
 ) -> None:
     await session.execute(
         text(
@@ -160,7 +163,8 @@ async def mark_episode_enrichment_status(
         ),
         {"episode_id": episode_id, "status": status, "summary": summary},
     )
-    await session.commit()
+    if commit:
+        await session.commit()
 
 
 async def set_episode_job_id(
@@ -168,6 +172,7 @@ async def set_episode_job_id(
     *,
     episode_id: str,
     job_id: str,
+    commit: bool = True,
 ) -> None:
     await session.execute(
         text(
@@ -179,7 +184,8 @@ async def set_episode_job_id(
         ),
         {"episode_id": episode_id, "job_id": job_id},
     )
-    await session.commit()
+    if commit:
+        await session.commit()
 
 
 async def mark_episode_enrichment_failed(
@@ -187,6 +193,7 @@ async def mark_episode_enrichment_failed(
     *,
     episode_id: str,
     error: str,
+    commit: bool = True,
 ) -> None:
     await session.execute(
         text(
@@ -199,7 +206,8 @@ async def mark_episode_enrichment_failed(
         ),
         {"episode_id": episode_id, "error": error},
     )
-    await session.commit()
+    if commit:
+        await session.commit()
 
 
 async def list_timeline_episodes(

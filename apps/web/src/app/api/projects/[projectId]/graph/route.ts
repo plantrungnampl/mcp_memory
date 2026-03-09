@@ -36,9 +36,11 @@ export async function GET(
     : [];
   const lastDaysParam = url.searchParams.get("last_days");
   const lastDays = lastDaysParam ? parsePositiveInt(lastDaysParam, 30) : null;
+  const mode = url.searchParams.get("mode") === "code" ? "code" : "concepts";
 
   try {
     const payload = await getProjectGraph(user, projectId, {
+      mode,
       query: q,
       entityTypes,
       lastDays,

@@ -12,17 +12,24 @@ def test_initialize_capabilities_present() -> None:
 def test_public_tools_registered() -> None:
     tools = get_tool_definitions()
     assert [tool["name"] for tool in tools] == [
+        "viberecall_save_episode",
         "viberecall_save",
+        "viberecall_search_memory",
         "viberecall_search",
+        "viberecall_get_fact",
         "viberecall_get_facts",
         "viberecall_update_fact",
         "viberecall_timeline",
         "viberecall_get_status",
         "viberecall_delete_episode",
+        "viberecall_get_operation",
         "viberecall_index_repo",
+        "viberecall_get_index_status",
         "viberecall_index_status",
         "viberecall_search_entities",
         "viberecall_get_context_pack",
+        "viberecall_working_memory_get",
+        "viberecall_working_memory_patch",
     ]
 
 

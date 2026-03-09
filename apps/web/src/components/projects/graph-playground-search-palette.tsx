@@ -6,6 +6,7 @@ import type { ProjectGraphNode } from "@/lib/api/types";
 
 type GraphPlaygroundSearchPaletteProps = {
   nodes: ProjectGraphNode[];
+  primaryCountLabel: string;
   searchQuery: string;
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string) => void;
@@ -13,6 +14,7 @@ type GraphPlaygroundSearchPaletteProps = {
 
 export function GraphPlaygroundSearchPalette({
   nodes,
+  primaryCountLabel,
   searchQuery,
   selectedNodeId,
   onSelectNode,
@@ -52,7 +54,7 @@ export function GraphPlaygroundSearchPalette({
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[var(--vr-text-dim)]">
                     <span>{node.type}</span>
                     <span>•</span>
-                    <span>{node.factCount} facts</span>
+                    <span>{node.factCount} {primaryCountLabel.toLowerCase()}</span>
                   </div>
                 </div>
                 <ArrowUpRight className="mt-0.5 size-3.5 shrink-0 text-[var(--vr-text-faint)]" />

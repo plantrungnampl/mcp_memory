@@ -1,77 +1,73 @@
-# 06 — Pipelines & Latency (Fast ACK + Async Enrich)
+# 06 — Pipelines & Latency
 
-## 1) Save pipeline (2-phase write)
-### Phase A — Fast ACK (sync)
-1. Auth + scope check
-2. Rate limit + quota pre-check
-3. Persist raw episode (Postgres/object storage)
-4. Enqueue `ingest_job`
-5. Return tool result `{status:ACCEPTED, episode_id, job_id}`
+## 1) Save pipeline
 
-Target: p95 < 200ms
+### Phase A — sync ACK
+1. auth + project binding + scope check
+2. rate limit + payload validation
+3. persist raw episode vào Postgres hoặc object storage
+4. enqueue ingest job
+5. trả `{ status: "ACCEPTED", episode_id, enrichment: { mode: "ASYNC", job_id } }`
 
-### Phase B — Enrichment (async worker)
-1. Load episode
-2. Graphiti `add_episode(...)` vào project graph
-3. Extract entities/facts (LLM/embeddings as needed)
-4. Apply temporal updates (invalidate old facts nếu mâu thuẫn)
-5. Update usage counters + audit
-6. Optional: push notifications / webhook
+Mục tiêu:
+- `save` ACK nhanh vì không chờ graph enrichment
 
-## 2) Search pipeline (hybrid + fresh visibility)
-1. Query graph facts (Graphiti search) trong project graph
-2. Apply filters (`valid_at`, `reference_time_range`, tags/files/entity_types)
-3. Merge thêm “recent raw episodes chưa enrich” (window 1–5 phút)
-4. Rank + return
+### Phase B — async ingest
+1. load raw episode
+2. ingest vào memory core / graph backend
+3. materialize facts/entities/provenance
+4. update episode enrichment status + summary
+5. ghi usage event và audit log
+
+## 2) Search pipeline
+1. query graph-backed facts trong project scope
+2. apply temporal/file/tag/entity filters
+3. query recent raw episodes chưa enrich từ Postgres
+4. merge hai nguồn kết quả
+5. paginate bằng merged opaque cursor
 
 ## 3) Update fact pipeline
-- Input bắt buộc `effective_time`
-- Worker:
-  - set old `invalid_at = effective_time`
-  - create new fact `valid_at = effective_time`
-  - audit log
+1. validate `effective_time`
+2. enqueue update job
+3. worker invalidate old fact + create new fact
+4. ghi audit / usage
 
-## 4) Export pipeline
-1. Tool call tạo `export_job`
-2. Worker stream graph → JSON/GraphML → object storage (chunked)
-3. Ghi `exports` record + signed URL + expiry
-4. Tool result trả export_id + link (hoặc resource URI)
+## 4) Delete episode pipeline
+1. validate episode ownership trong project
+2. cleanup graph memory first
+3. delete Postgres row và object-storage artifact nếu có
+4. trả trạng thái chi tiết theo từng subsystem
 
-## 5) Idempotency rules
-- Save/update/export: support Idempotency-Key
-- De-dup job enqueue theo `(project_id, idempotency_key)`
+Delete phải fail với runtime error chuẩn nếu graph cleanup không hoàn tất; không được giả vờ `DELETED`.
 
+## 5) Export pipeline
+Export hiện là **control-plane** flow:
+1. owner tạo export qua control-plane route
+2. backend tạo `exports` record + enqueue export job
+3. worker collect episodes + facts + entities + relationships
+4. build JSON v1 artifact
+5. sign download URL và expose qua export endpoints
 
-## 6) Search algorithm (chốt cứng v0.1)
+## 6) Inline migration / retention / purge
+- `migrate-inline-to-object`: chuyển large historical inline episodes sang object storage
+- `retention`: dọn dữ liệu cũ theo project policy
+- `purge`: xóa toàn bộ project artifacts ở relational/object/graph layers
 
-### 6.1 Candidate generation (hybrid cố định)
-Tạo candidate set bằng **union** của:
-1) **FULLTEXT/BM25** trên `Fact.text` (topK=50)  
-2) **VECTOR similarity** trên `Fact.embedding` (topK=100) *(nếu bật vector; nếu chưa bật → skip)*  
-3) **Graph expansion**: với entities match mạnh, traverse 1-hop `(Entity)<-[:ABOUT]-(Fact)` (cap 50)
+## 7) Code indexing pipeline
+1. `index_repo` tạo `code_index_runs` row ở trạng thái `QUEUED`
+2. queue backend chạy indexing job
+3. job scan repo, materialize files/entities/chunks
+4. mark run `READY` hoặc `FAILED`
+5. read-paths chỉ đọc latest `READY`
 
-### 6.2 Scoring (deterministic)
-Normalize các score về [0,1] rồi tính:
-- `score = 0.55 * vec + 0.25 * bm25 + 0.10 * graph_boost + 0.10 * time_boost`
+`diff` mode hiện:
+- fail fast nếu thiếu refs
+- không silently fallback sang full snapshot khi git diff lỗi
+- zero-change diff giữ nguyên previous READY snapshot
 
-Trong đó:
-- `graph_boost`: +0.1 nếu fact share entity với top entity hit; +0.05 nếu từ episode gần đây
-- `time_boost`: decay theo `reference_time` (ưu tiên mới) và boost facts `invalid_at=null`
-
-Tie-break:
-1) higher `score`
-2) newer `ingested_at`
-3) stable sort by `fact_id`
-
-### 6.3 Dedupe & freshness merge
-- Dedupe theo `fact.id`: giữ record có score cao nhất.
-- Merge “recent raw episodes chưa enrich” trong window **5 phút**:
-  - chỉ include nếu vector sim ≥ 0.35 (hoặc bm25 hit) để tránh spam.
-  - Kết quả raw episodes có `kind="episode"` và cap tối đa 5 items.
-  - Raw episodes **không** được gắn `Fact.id`.
-
-### 6.4 Consistency guarantees (v0.1)
-- **Read-your-writes**: episode vừa `save` sẽ xuất hiện trong search dưới dạng `kind="episode"` trong ≤ 5s.
-- Facts enriched xuất hiện trong search khi ingest job complete (p95 mục tiêu < 10s).
-- Temporal correctness: nếu query có `valid_at`, server lọc facts theo validity interval trước khi rank.
-
+## 8) Context-pack pipeline
+1. lấy latest `READY` index snapshot
+2. rank entities/chunks theo query
+3. build `architecture_map`, `relevant_symbols`, `citations`
+4. merge thêm timeline evidence có liên quan
+5. trả về một pack tối ưu cho agent reasoning

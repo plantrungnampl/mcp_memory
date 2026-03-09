@@ -1,61 +1,100 @@
 # 09 — Deployment & Roadmap
 
+## 1) Current deployment decisions
+- **Web**: Vercel
+- **API**: Render web service
+- **Worker**: Render worker service
+- **Graph memory**: Render private FalkorDB service
+- **Postgres**: external managed Postgres
+- **Redis / broker**: Render Key Value hoặc equivalent Redis-compatible service
 
-## 0) Deployment decisions (chốt cứng v0.1)
+Repository artifacts hiện có:
+- `render.yaml`
+- `ops/render/falkordb/Dockerfile`
+- `ops/vercel-render-public-ga.md`
+- `.env.production.example`
 
-- **Primary platform (MVP)**: **Fly.io** (data plane)  
-- **Region**: **Singapore (sin)** (tối ưu latency cho VN/TH/SEA)  
-- **Control plane**: **Supabase** (Auth + Postgres)  
-- **Redis**: **Upstash Redis**  
-- **Object storage**: **Cloudflare R2** (exports + large episodes)  
-- **Secrets management**: Fly secrets + Supabase env vars  
-- **Backups**:
-  - Supabase: managed backups
-  - Neo4j: nightly dump per database + store in R2 (retention 7–30 days)
+## 2) Production-shaped service layout
+- `viberecall-api`
+- `viberecall-worker`
+- `viberecall-falkordb`
+- Vercel project cho `apps/web`
 
+## 3) Required env contract
+Web:
+- `NEXT_PUBLIC_APP_URL`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `NEXT_PUBLIC_MCP_BASE_URL`
+- `CONTROL_PLANE_API_BASE_URL`
+- `CONTROL_PLANE_INTERNAL_SECRET`
+- `DEPLOYMENT_VERSION`
+- `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`
 
-## 1) MVP deployment (single-region)
-- 1 container: MCP Gateway + API + Worker (monolith)
-- Redis managed
-- Postgres (Supabase)
-- Graph DB single node (**Neo4j**)
-- Object storage (optional) cho exports/raw episodes
+API/worker:
+- `APP_ENV`
+- `LOG_LEVEL`
+- `PUBLIC_MCP_BASE_URL`
+- `PUBLIC_WEB_URL`
+- `ALLOWED_ORIGINS`
+- `DATABASE_URL`
+- `TOKEN_PEPPER`
+- `CONTROL_PLANE_INTERNAL_SECRET`
+- `MEMORY_BACKEND`
+- `KV_BACKEND`
+- `QUEUE_BACKEND`
+- `FALKORDB_HOST`
+- `FALKORDB_PORT`
+- `FALKORDB_GRAPH_PREFIX`
+- `REDIS_URL`
+- `CELERY_BROKER_URL`
+- `CELERY_RESULT_BACKEND`
+- `INDEX_REPO_ALLOWED_ROOTS`
+- `GRAPHITI_API_KEY`
+- `GRAPHITI_LLM_MODEL`
+- `GRAPHITI_EMBEDDER_MODEL`
+- `GRAPHITI_MCP_BRIDGE_MODE`
+- `GRAPHITI_TELEMETRY_ENABLED`
+- `OBJECT_STORAGE_MODE`
+- `OBJECT_LOCAL_DIR`
+- `OBJECT_BUCKET`
+- `OBJECT_ENDPOINT`
+- `OBJECT_REGION`
+- `OBJECT_ACCESS_KEY_ID`
+- `OBJECT_SECRET_ACCESS_KEY`
+- `OBJECT_FORCE_PATH_STYLE`
+- `RAW_EPISODE_INLINE_MAX_BYTES`
+- `INLINE_MIGRATION_DB_SIZE_THRESHOLD_BYTES`
+- `RATE_LIMIT_TOKEN_CAPACITY`
+- `RATE_LIMIT_PROJECT_CAPACITY`
+- `RATE_LIMIT_WINDOW_SECONDS`
+- `RECENT_EPISODE_WINDOW_SECONDS`
+- `EXPORT_STORAGE_MODE`
+- `EXPORT_LOCAL_DIR`
+- `EXPORT_URL_TTL_SECONDS`
+- `EXPORT_SIGNING_SECRET`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `STRIPE_WEBHOOK_SECRET`
 
-## 2) Scale-out
-Split services:
-- `mcp-gateway` (stateless autoscale)
-- `workers` (autoscale theo queue depth)
-- Graph DB cluster (**Neo4j cluster**)
-- Redis cluster (nếu cần)
+## 4) Release gate
+Chuẩn release gate hiện tại:
+- `pnpm validate:web`
+- `pnpm test:backend`
+- `pnpm validate:release`
 
-## 3) CI/CD
-- GitHub Actions: build + test + deploy (Railway/Fly/K8s)
-- Migration scripts (DB schema)
+## 5) Deployed verification
+Sau khi deploy:
+1. chạy deployed MCP smoke
+2. seed QA project/token
+3. chạy authenticated browser QA cho:
+   - `/projects`
+   - `/projects/[projectId]/tokens`
+   - `/projects/[projectId]/api-logs`
+   - `/projects/[projectId]/usage`
+   - `/projects/[projectId]/graphs/playground`
 
-## 4) Roadmap 7 ngày (MVP)
-Day 1–2:
-- Supabase schema + token mgmt
-- MCP gateway skeleton + initialize/tools/list/call
-- Graph-per-project routing
-
-Day 3:
-- Auth middleware + rate limit + quota counters
-- Idempotency framework
-
-Day 4:
-- Implement 5 tools + integration tests với Cursor/Claude/Windsurf (backend: FastMCP + FastAPI)
-
-Day 5:
-- Dashboard: login, project list, create, show URL/token, rotate/revoke
-
-Day 6:
-- Docker compose + deploy
-- Usage metering (VibeTokens) + Stripe webhook
-
-Day 7:
-- Landing + docs onboarding + launch channels
-
-## 5) Definition of Done (v0.1)
-- A dev connect MCP URL+token trong IDE → thấy tools → save/search hoạt động.
-- Không thể leak cross-project data.
-- Usage token metering lên dashboard.
+## 6) Near-term roadmap
+- giữ spec package đồng bộ với repo state
+- tiếp tục harden graph/runtime degradation paths
+- tiếp tục theo dõi wrapper/client behavior quanh stale MCP sessions
+- cân nhắc future policy cho quota gating nếu pricing chuyển sang enforce thực sự

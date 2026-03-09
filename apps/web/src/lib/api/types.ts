@@ -125,6 +125,8 @@ export type UsageAnalyticsPayload = {
 };
 
 export type GraphEntityType = string;
+export type GraphViewMode = "concepts" | "code";
+export type GraphEmptyReason = "none" | "concepts_unavailable" | "no_ready_index" | "no_graph_data";
 
 export type ProjectGraphHoverItem = {
   text: string;
@@ -153,6 +155,12 @@ export type ProjectGraphEdge = {
 
 export type ProjectGraphPayload = {
   generatedAt: string;
+  mode: GraphViewMode;
+  emptyReason: GraphEmptyReason;
+  availableModes: GraphViewMode[];
+  nodePrimaryLabel: string;
+  nodeSecondaryLabel: string;
+  edgeSupportLabel: string;
   entityCount: number;
   relationshipCount: number;
   truncated: boolean;
@@ -182,15 +190,44 @@ export type ProjectTimelineEpisode = {
 };
 
 export type ProjectGraphEntityDetail = {
+  mode: GraphViewMode;
   entity: {
     entityId: string;
     type: GraphEntityType;
     name: string;
     factCount: number;
     episodeCount: number;
+    filePaths?: string[];
+    language?: string | null;
+    kind?: string | null;
   };
   facts: ProjectGraphEntityFact[];
   provenance: ProjectTimelineEpisode[];
+  relatedEntities: Array<{
+    entityId: string;
+    type: GraphEntityType;
+    name: string;
+    relationType: string;
+    supportCount: number;
+  }>;
+  citations: Array<{
+    citationId: string;
+    sourceType: string;
+    entityId: string;
+    filePath: string | null;
+    lineStart: number | null;
+    lineEnd: number | null;
+    snippet: string | null;
+  }>;
+  symbols: Array<{
+    entityId: string;
+    name: string;
+    kind: string | null;
+    filePath: string | null;
+    lineStart: number | null;
+    lineEnd: number | null;
+    language: string | null;
+  }>;
 };
 
 export type ProjectTimelinePayload = {

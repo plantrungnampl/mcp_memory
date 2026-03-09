@@ -10,12 +10,10 @@ import structlog
 from graphiti_core import Graphiti
 from graphiti_core.driver.falkordb_driver import FalkorDriver
 from graphiti_core.edges import EntityEdge
-from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
-from graphiti_core.llm_client.config import LLMConfig
-from graphiti_core.llm_client.openai_client import OpenAIClient
 from graphiti_core.nodes import EpisodeType, EpisodicNode
 
 from viberecall_mcp.config import get_settings
+from viberecall_mcp.graphiti_clients import build_graphiti_openai_components
 from viberecall_mcp.memory_core.falkordb_admin import FalkorDBGraphManager
 from viberecall_mcp.metrics import graph_db_latency_ms
 
@@ -73,18 +71,10 @@ class UpstreamGraphitiBridge:
             if cached is not None:
                 return cached
 
-            llm = OpenAIClient(
-                config=LLMConfig(
-                    api_key=settings.graphiti_api_key,
-                    model=settings.graphiti_llm_model,
-                    small_model=settings.graphiti_llm_model,
-                )
-            )
-            embedder = OpenAIEmbedder(
-                config=OpenAIEmbedderConfig(
-                    api_key=settings.graphiti_api_key,
-                    embedding_model=settings.graphiti_embedder_model,
-                )
+            llm, embedder, cross_encoder = build_graphiti_openai_components(
+                api_key=settings.graphiti_api_key,
+                llm_model=settings.graphiti_llm_model,
+                embedder_model=settings.graphiti_embedder_model,
             )
             graph_driver = FalkorDriver(
                 host=settings.falkordb_host,
@@ -97,6 +87,7 @@ class UpstreamGraphitiBridge:
             client = Graphiti(
                 llm_client=llm,
                 embedder=embedder,
+                cross_encoder=cross_encoder,
                 graph_driver=graph_driver,
                 store_raw_episode_content=False,
             )
@@ -133,7 +124,6 @@ class UpstreamGraphitiBridge:
                 reference_time=reference_time or datetime.now(timezone.utc),
                 source=EpisodeType.text,
                 group_id=project_id,
-                uuid=str(episode["episode_id"]),
             )
         finally:
             graph_db_latency_ms.labels(operation="graphiti.bridge.add_episode").observe(
