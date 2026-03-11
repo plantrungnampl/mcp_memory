@@ -4,7 +4,7 @@ import json
 
 from viberecall_mcp.ids import new_id
 from viberecall_mcp.tool_registry import build_output_envelope, get_tool_definition, get_tool_definitions
-from viberecall_mcp.tool_access import filter_tools_for_plan
+from viberecall_mcp.tool_access import filter_tools_for_plan, filter_tools_for_token
 
 
 def build_initialize_result() -> dict:
@@ -21,8 +21,11 @@ def build_initialize_result() -> dict:
     }
 
 
-def list_tools_result(plan: str | None = None) -> dict:
-    return {"tools": filter_tools_for_plan(plan or "free", get_tool_definitions())}
+def list_tools_result(plan: str | None = None, scopes: tuple[str, ...] | None = None) -> dict:
+    tools = get_tool_definitions()
+    if scopes is None:
+        return {"tools": filter_tools_for_plan(plan or "free", tools)}
+    return {"tools": filter_tools_for_token(plan=plan or "free", scopes=scopes, tools=tools)}
 
 
 def tool_error(request_id: str, code: str, message: str, details: dict | None = None) -> dict:

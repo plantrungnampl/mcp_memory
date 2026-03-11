@@ -4,6 +4,8 @@ import { useEffect } from "react";
 import { Copy, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
+
 type TokenIssuedModalProps = {
   open: boolean;
   mode: "mint" | "rotate";
@@ -14,7 +16,10 @@ type TokenIssuedModalProps = {
 
 async function copyText(content: string, label: string): Promise<void> {
   try {
-    await navigator.clipboard.writeText(content);
+    const copied = await copyTextToClipboard(content);
+    if (!copied) {
+      throw new Error("copy failed");
+    }
     toast.success(`${label} copied.`);
   } catch {
     toast.error(`Unable to copy ${label.toLowerCase()}.`);

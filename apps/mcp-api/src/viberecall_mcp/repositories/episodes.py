@@ -84,7 +84,8 @@ async def get_episode(session: AsyncSession, episode_id: str) -> dict | None:
         text(
             """
             select episode_id, project_id, reference_time, ingested_at, enrichment_status,
-                   job_id, content_ref, summary, content, metadata_json
+                   job_id, content_ref, summary, content, metadata_json,
+                   salience_score, salience_class
             from episodes
             where episode_id = :episode_id
             """
@@ -104,7 +105,8 @@ async def get_episode_for_project(
     result = await session.execute(
         text(
             """
-            select episode_id, project_id, reference_time, ingested_at, content_ref
+            select episode_id, project_id, reference_time, ingested_at, content_ref,
+                   summary, metadata_json, salience_score, salience_class
             from episodes
             where project_id = :project_id
               and episode_id = :episode_id
@@ -113,6 +115,49 @@ async def get_episode_for_project(
         {
             "project_id": project_id,
             "episode_id": episode_id,
+        },
+    )
+    row = result.mappings().first()
+    return dict(row) if row else None
+
+
+async def update_episode_salience(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    episode_id: str,
+    salience_score: float,
+    salience_class: str,
+    metadata_json: dict,
+) -> dict | None:
+    result = await session.execute(
+        text(
+            """
+            update episodes
+            set salience_score = :salience_score,
+                salience_class = :salience_class,
+                metadata_json = cast(:metadata_json as jsonb)
+            where project_id = :project_id
+              and episode_id = :episode_id
+            returning
+              episode_id,
+              project_id,
+              reference_time,
+              ingested_at,
+              content_ref,
+              summary,
+              content,
+              metadata_json,
+              salience_score,
+              salience_class
+            """
+        ),
+        {
+            "project_id": project_id,
+            "episode_id": episode_id,
+            "salience_score": salience_score,
+            "salience_class": salience_class,
+            "metadata_json": json.dumps(metadata_json),
         },
     )
     row = result.mappings().first()
@@ -235,7 +280,8 @@ async def list_timeline_episodes(
         params["to_time"] = parsed_to_time
 
     query = f"""
-            select episode_id, reference_time, ingested_at, summary, metadata_json
+            select episode_id, reference_time, ingested_at, summary, metadata_json,
+                   salience_score, salience_class
             from episodes
             where {" and ".join(filters)}
             order by coalesce(reference_time, ingested_at) desc, episode_id desc
@@ -254,6 +300,8 @@ async def list_timeline_episodes(
                 "ingested_at": _as_iso(row["ingested_at"]),
                 "summary": row["summary"],
                 "metadata": _parse_metadata(row["metadata_json"]),
+                "salience_score": row.get("salience_score", 0.5),
+                "salience_class": row.get("salience_class", "WARM"),
             }
         )
     return rows
@@ -272,7 +320,8 @@ async def list_recent_raw_episodes(
     result = await session.execute(
         text(
             """
-            select episode_id, reference_time, ingested_at, content, metadata_json, summary, enrichment_status
+            select episode_id, reference_time, ingested_at, content, metadata_json, summary, enrichment_status,
+                   salience_score, salience_class
             from episodes
             where project_id = :project_id
               and ingested_at >= :window_start
@@ -300,6 +349,8 @@ async def list_recent_raw_episodes(
                 "ingested_at": _as_iso(row["ingested_at"]),
                 "summary": row["summary"] or ((row["content"] or "")[:160]),
                 "metadata": _parse_metadata(row["metadata_json"]),
+                "salience_score": row.get("salience_score", 0.5),
+                "salience_class": row.get("salience_class", "WARM"),
             }
         )
     return rows
@@ -313,7 +364,8 @@ async def list_project_episodes_for_export(
     result = await session.execute(
         text(
             """
-            select episode_id, reference_time, ingested_at, summary, metadata_json
+            select episode_id, reference_time, ingested_at, summary, metadata_json,
+                   salience_score, salience_class
             from episodes
             where project_id = :project_id
             order by ingested_at asc, episode_id asc
@@ -330,6 +382,8 @@ async def list_project_episodes_for_export(
                 "ingested_at": _as_iso(row["ingested_at"]),
                 "summary": row["summary"],
                 "metadata": _parse_metadata(row["metadata_json"]),
+                "salience_score": row.get("salience_score", 0.5),
+                "salience_class": row.get("salience_class", "WARM"),
             }
         )
     return rows

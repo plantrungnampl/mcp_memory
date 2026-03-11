@@ -4,12 +4,15 @@
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "dev": "pnpm -r --parallel dev",
+    "dev:docs": "pnpm --dir apps/docs dev",
     "dev:web": "pnpm --dir apps/web dev",
+    "build:docs": "pnpm --dir apps/docs build",
     "build:web": "pnpm --dir apps/web build",
     "lint:web": "pnpm --dir apps/web lint",
     "test:backend": "UV_CACHE_DIR=/tmp/uv-cache uv run --project apps/mcp-api pytest -q apps/mcp-api/tests",
     "smoke:mcp:deployed": "uv run --project apps/mcp-api python apps/mcp-api/scripts/smoke_deployed_mcp.py",
+    "validate:docs": "pnpm build:docs",
     "validate:web": "pnpm --dir apps/web typecheck && pnpm --dir apps/web lint && pnpm --dir apps/web build",
-    "validate:release": "pnpm validate:web && pnpm test:backend"
+    "validate:release": "pnpm validate:docs && pnpm validate:web && pnpm test:backend"
   }
 }

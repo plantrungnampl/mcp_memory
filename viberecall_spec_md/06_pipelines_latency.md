@@ -20,11 +20,11 @@ Mục tiêu:
 5. ghi usage event và audit log
 
 ## 2) Search pipeline
-1. query graph-backed facts trong project scope
-2. apply temporal/file/tag/entity filters
-3. query recent raw episodes chưa enrich từ Postgres
-4. merge hai nguồn kết quả
-5. paginate bằng merged opaque cursor
+1. query canonical `memory_search_docs` / fact-episode read model trong project scope
+2. apply temporal/file/tag/entity/salience filters
+3. hydrate grouped fact / episode payloads từ canonical Postgres state
+4. rank và merge kết quả theo current search semantics
+5. paginate bằng opaque cursor ổn định
 
 ## 3) Update fact pipeline
 1. validate `effective_time`
@@ -60,10 +60,10 @@ Export hiện là **control-plane** flow:
 4. mark run `READY` hoặc `FAILED`
 5. read-paths chỉ đọc latest `READY`
 
-`diff` mode hiện:
-- fail fast nếu thiếu refs
-- không silently fallback sang full snapshot khi git diff lỗi
-- zero-change diff giữ nguyên previous READY snapshot
+Current public contract:
+- `repo_source.type = "git" | "workspace_bundle"`
+- `mode = "FULL_SNAPSHOT"`
+- active run không thay thế latest `READY` cho read-paths
 
 ## 8) Context-pack pipeline
 1. lấy latest `READY` index snapshot

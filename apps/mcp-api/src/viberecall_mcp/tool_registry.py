@@ -1,9 +1,42 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 OUTPUT_VERSION = "1.0"
+_TOOL_ERROR_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "details": {
+            "type": "object",
+            "additionalProperties": True,
+        },
+    },
+    "required": ["code", "message", "details"],
+}
+_TOOL_OUTPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "output_version": {"type": "string"},
+        "ok": {"type": "boolean"},
+        "result": {
+            "type": ["object", "null"],
+            "additionalProperties": True,
+        },
+        "error": {
+            "anyOf": [
+                {"type": "null"},
+                _TOOL_ERROR_SCHEMA,
+            ]
+        },
+        "request_id": {"type": "string"},
+    },
+    "required": ["output_version", "ok", "result", "error", "request_id"],
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -11,6 +44,7 @@ class ToolDefinition:
     name: str
     description: str
     input_schema: dict
+    output_schema: dict = field(default_factory=lambda: dict(_TOOL_OUTPUT_SCHEMA))
 
 
 def build_output_envelope(
@@ -149,6 +183,12 @@ TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
                             "maxItems": 20,
                             "default": [],
                         },
+                        "salience_classes": {
+                            "type": "array",
+                            "items": {"type": "string", "maxLength": 32},
+                            "maxItems": 10,
+                            "default": [],
+                        },
                     },
                 },
                 "sort": {
@@ -200,6 +240,12 @@ TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
                             "type": "array",
                             "items": {"type": "string", "maxLength": 64},
                             "maxItems": 20,
+                            "default": [],
+                        },
+                        "salience_classes": {
+                            "type": "array",
+                            "items": {"type": "string", "maxLength": 32},
+                            "maxItems": 10,
                             "default": [],
                         },
                     },
@@ -278,6 +324,27 @@ TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
                 "metadata": {"type": "object", "additionalProperties": True},
             },
             "required": ["effective_time"],
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_pin_memory",
+        description="Manually pin, unpin, or demote the salience state of a canonical fact, entity, or episode.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "target_kind": {
+                    "type": "string",
+                    "enum": ["FACT", "ENTITY", "EPISODE"],
+                },
+                "target_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                "pin_action": {
+                    "type": "string",
+                    "enum": ["PIN", "UNPIN", "DEMOTE"],
+                },
+                "reason": {"type": ["string", "null"], "default": None, "maxLength": 2000},
+            },
+            "required": ["target_kind", "target_id", "pin_action"],
         },
     ),
     ToolDefinition(
@@ -389,21 +456,198 @@ TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
     ),
     ToolDefinition(
         name="viberecall_search_entities",
-        description="Search indexed project entities (files, modules, symbols) with relevance scores.",
+        description="Search canonical project entities with aliases, support counts, and recent support snippets.",
         input_schema={
             "type": "object",
             "additionalProperties": False,
             "properties": {
                 "query": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "entity_kinds": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 64},
+                    "maxItems": 20,
+                    "default": [],
+                },
                 "entity_types": {
                     "type": "array",
                     "items": {"type": "string", "maxLength": 64},
                     "maxItems": 20,
                     "default": [],
                 },
+                "repo_scope": {"type": ["string", "null"], "default": None, "maxLength": 128},
+                "salience_classes": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 32},
+                    "maxItems": 10,
+                    "default": [],
+                },
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
             },
             "required": ["query"],
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_get_neighbors",
+        description="Return a bounded depth-1 neighborhood around a canonical entity.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "entity_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                "direction": {
+                    "type": "string",
+                    "enum": ["IN", "OUT", "BOTH"],
+                    "default": "BOTH",
+                },
+                "relation_types": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 128},
+                    "maxItems": 32,
+                    "default": [],
+                },
+                "depth": {"type": "integer", "minimum": 1, "maximum": 3, "default": 1},
+                "current_only": {"type": "boolean", "default": True},
+                "valid_at": {"type": ["string", "null"], "default": None},
+                "as_of_system_time": {"type": ["string", "null"], "default": None},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+            },
+            "required": ["entity_id"],
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_find_paths",
+        description="Find bounded canonical graph paths between two entities using recursive SQL.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "src_entity_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                "dst_entity_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                "relation_types": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 128},
+                    "maxItems": 32,
+                    "default": [],
+                },
+                "max_depth": {"type": "integer", "minimum": 1, "maximum": 3, "default": 2},
+                "current_only": {"type": "boolean", "default": True},
+                "valid_at": {"type": ["string", "null"], "default": None},
+                "as_of_system_time": {"type": ["string", "null"], "default": None},
+                "limit_paths": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
+            },
+            "required": ["src_entity_id", "dst_entity_id"],
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_explain_fact",
+        description="Explain a canonical fact version with lineage, provenance, and supporting episodes.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "fact_version_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            },
+            "required": ["fact_version_id"],
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_resolve_reference",
+        description="Resolve a mention against canonical entities, augmented by the latest READY code index when available.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "mention_text": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "observed_kind": {"type": ["string", "null"], "default": None, "maxLength": 64},
+                "repo_scope": {"type": ["string", "null"], "default": None, "maxLength": 400},
+                "include_code_index": {"type": "boolean", "default": True},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
+            },
+            "required": ["mention_text"],
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_merge_entities",
+        description="Privileged canonical entity merge with redirect creation and async projection reconciliation.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "target_entity_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                "source_entity_ids": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "minItems": 1,
+                    "maxItems": 50,
+                },
+                "reason": {"type": ["string", "null"], "default": None, "maxLength": 2000},
+            },
+            "required": ["target_entity_id", "source_entity_ids"],
+        },
+    ),
+    ToolDefinition(
+        name="viberecall_split_entity",
+        description="Privileged canonical entity split with explicit alias and fact rebinding instructions.",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "source_entity_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                "reason": {"type": ["string", "null"], "default": None, "maxLength": 2000},
+                "partitions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "target_entity_id": {"type": ["string", "null"], "default": None, "maxLength": 128},
+                            "new_entity": {
+                                "type": ["object", "null"],
+                                "default": None,
+                                "additionalProperties": False,
+                                "properties": {
+                                    "entity_kind": {"type": "string", "minLength": 1, "maxLength": 64},
+                                    "canonical_name": {"type": "string", "minLength": 1, "maxLength": 400},
+                                    "display_name": {"type": ["string", "null"], "default": None, "maxLength": 400},
+                                },
+                                "required": ["entity_kind", "canonical_name"],
+                            },
+                            "alias_values": {
+                                "type": "array",
+                                "items": {"type": "string", "minLength": 1, "maxLength": 400},
+                                "maxItems": 200,
+                                "default": [],
+                            },
+                            "fact_bindings": {
+                                "type": "array",
+                                "maxItems": 200,
+                                "default": [],
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "fact_version_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                                        "slot": {"type": "string", "enum": ["subject", "object", "both"]},
+                                    },
+                                    "required": ["fact_version_id", "slot"],
+                                },
+                            },
+                        },
+                        "required": ["alias_values", "fact_bindings"],
+                        "allOf": [
+                            {
+                                "anyOf": [
+                                    {"required": ["target_entity_id"]},
+                                    {"required": ["new_entity"]},
+                                ]
+                            }
+                        ],
+                    },
+                },
+            },
+            "required": ["source_entity_id", "partitions"],
         },
     ),
     ToolDefinition(
@@ -472,6 +716,7 @@ def get_tool_definitions() -> list[dict]:
             "name": tool.name,
             "description": tool.description,
             "inputSchema": tool.input_schema,
+            "outputSchema": tool.output_schema,
         }
         for tool in TOOL_DEFINITIONS
     ]

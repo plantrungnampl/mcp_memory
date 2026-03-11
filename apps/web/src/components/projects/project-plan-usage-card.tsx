@@ -45,22 +45,22 @@ export function ProjectPlanUsageCard({ projects }: ProjectPlanUsageCardProps) {
     staleTime: 30_000,
   });
 
-  const planQuota = selectedProject ? PLAN_QUOTA[selectedProject.plan] : null;
+  const usageQuota = selectedProject ? PLAN_QUOTA[selectedProject.plan] : null;
   const safeUsageTokens = usageQuery.data?.vibeTokens ?? 0;
   const usagePct =
-    planQuota === null
+    usageQuota === null
       ? 0
-      : Math.min(100, Math.round((safeUsageTokens / Math.max(planQuota, 1)) * 100));
-  const planLabel = selectedProject ? `${selectedProject.plan.toUpperCase()} plan` : "No project";
+      : Math.min(100, Math.round((safeUsageTokens / Math.max(usageQuota, 1)) * 100));
+  const cardLabel = selectedProject ? "Usage this month" : "No project";
   const detailLabel =
-    selectedProject && planQuota !== null
-      ? `${safeUsageTokens.toLocaleString()} / ${planQuota.toLocaleString()} VibeTokens`
-      : "Select project to load dashboard data.";
+    selectedProject && usageQuota !== null
+      ? `${safeUsageTokens.toLocaleString()} / ${usageQuota.toLocaleString()} VibeTokens`
+      : "Select project to load usage data.";
 
   return (
     <div className="rounded-[10px] border border-[var(--vr-border)] bg-[var(--vr-bg-elevated)] p-4">
       <div className="mb-2 flex items-center justify-between text-xs font-semibold">
-        <span className="text-[var(--vr-text-main)]">{planLabel}</span>
+        <span className="text-[var(--vr-text-main)]">{cardLabel}</span>
         <span className="font-mono text-[var(--vr-accent-2)]">{selectedProject ? `${usagePct}%` : "--"}</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-[var(--vr-divider)]">

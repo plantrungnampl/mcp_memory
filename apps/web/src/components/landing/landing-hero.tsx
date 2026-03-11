@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BookOpen, Github } from "lucide-react";
 
+import { publicEnv } from "@/lib/env";
 import { cn } from "@/lib/utils";
 
 import styles from "./landing-page.module.css";
@@ -46,7 +47,7 @@ export function LandingHero() {
             Get Started with GitHub
           </Link>
           <Link
-            href="/docs"
+            href={publicEnv.docsUrl}
             className="inline-flex items-center gap-2.5 rounded-xl border border-[#2a2a2e] px-8 py-4 text-base font-medium text-[#adadb0] transition-colors hover:border-[#3a3a3f] hover:text-white"
           >
             <BookOpen className="size-5" />

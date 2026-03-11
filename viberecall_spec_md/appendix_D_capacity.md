@@ -13,9 +13,9 @@
 
 ## 3) SLO interpretation
 - `save` ACK p95 < 200ms khi queue path khỏe
-- `search` p95 < 1.5s phụ thuộc graph runtime, filters, và recent-episode merge
+- `search` p95 < 1.5s phụ thuộc canonical search-doc reads, filters, và runtime dependency health
 - ingest completion p95 < 10s phụ thuộc queue depth và backend dependencies
-- index completion phụ thuộc repo size và mode `snapshot | diff`
+- index completion phụ thuộc repo size và current public `FULL_SNAPSHOT` indexing path
 
 ## 4) What to track
 - p50/p95 initialize latency

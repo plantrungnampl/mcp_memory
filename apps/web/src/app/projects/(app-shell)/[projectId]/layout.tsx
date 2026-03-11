@@ -1,4 +1,3 @@
-import { Copy } from "lucide-react";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 
@@ -8,6 +7,7 @@ import {
 } from "@/app/projects/_lib/projects-server";
 import { AuthRequiredCard } from "@/components/projects/auth-required-card";
 import { ControlPlaneErrorState } from "@/components/projects/control-plane-error-state";
+import { ProjectIdCopyBadge } from "@/components/projects/project-id-copy-badge";
 import { ProjectSwitcher } from "@/components/projects/project-switcher";
 import { WorkspaceUserMenu } from "@/components/projects/workspace-user-menu";
 
@@ -74,10 +74,7 @@ export default async function ProjectWorkspaceLayout({
 
           <div className="flex items-center gap-3">
             <ProjectSwitcher activeProjectId={activeProject.id} projects={baseData.value.projects} />
-            <div className="flex items-center gap-1 rounded-md bg-[var(--vr-bg-elevated)] px-2.5 py-1.5">
-              <p className="font-mono text-[11px] text-[var(--vr-text-dim)]">ID: {activeProject.id}</p>
-              <Copy className="size-3 text-[var(--vr-text-dim)]" />
-            </div>
+            <ProjectIdCopyBadge projectId={activeProject.id} />
             <WorkspaceUserMenu roleLabel="Owner" userEmail={user.email} variant="header" />
           </div>
         </div>

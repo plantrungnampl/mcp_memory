@@ -1,3 +1,5 @@
+import { publicEnv } from "@/lib/env";
+
 export type NavItem = {
   label: string;
   href: string;
@@ -22,16 +24,6 @@ export type TemporalEdgeItem = {
   text: string;
 };
 
-export type PricingPlan = {
-  name: string;
-  price: string;
-  cadence: string;
-  description: string;
-  ctaLabel: string;
-  highlighted?: boolean;
-  features: string[];
-};
-
 export type SecurityCard = {
   title: string;
   description: string;
@@ -51,8 +43,7 @@ export type FooterLinkColumn = {
 export const navItems: NavItem[] = [
   { label: "Features", href: "#features" },
   { label: "How It Works", href: "#how-it-works" },
-  { label: "Pricing", href: "#pricing" },
-  { label: "Docs", href: "/docs" },
+  { label: "Docs", href: publicEnv.docsUrl },
 ];
 
 export const compatibilityLabels = ["Claude Code", "Cursor", "Windsurf", "VS Code"];
@@ -115,50 +106,6 @@ export const temporalEdgeItems: TemporalEdgeItem[] = [
   { text: "Hybrid search — semantic + temporal filtering" },
 ];
 
-export const pricingPlans: PricingPlan[] = [
-  {
-    name: "Free",
-    price: "$0",
-    cadence: "/month",
-    description: "Perfect for trying out memory-powered coding.",
-    ctaLabel: "Start Free",
-    features: [
-      "100 VibeTokens / month",
-      "1 project",
-      "Basic memory persistence",
-      "Community support",
-    ],
-  },
-  {
-    name: "Pro",
-    price: "$9",
-    cadence: "/month",
-    description: "For developers who ship fast and need full recall.",
-    ctaLabel: "Get Pro",
-    highlighted: true,
-    features: [
-      "5,000 VibeTokens / month",
-      "Unlimited projects",
-      "Advanced temporal search",
-      "Priority support",
-      "JSON export",
-    ],
-  },
-  {
-    name: "Team",
-    price: "$29",
-    cadence: "/month",
-    description: "For teams building complex projects together.",
-    ctaLabel: "Contact Sales",
-    features: [
-      "Unlimited VibeTokens",
-      "Shared team workspace",
-      "Admin controls & audit logs",
-      "Dedicated support + SLA",
-    ],
-  },
-];
-
 export const securityCards: SecurityCard[] = [
   {
     icon: "shield",
@@ -189,21 +136,21 @@ export const faqItems: FaqItem[] = [
       "Near-zero. Saves are fast-acknowledged and processed asynchronously. Searches use hybrid retrieval optimized for sub-second response times.",
   },
   {
-    question: "What are VibeTokens?",
+    question: "Is VibeRecall really free?",
     answer:
-      "VibeTokens are the usage unit for VibeRecall. Each save, search, or fact update consumes tokens. Plans include monthly token allowances with rollover.",
+      "Yes. VibeRecall is free for everyone. Create a project, connect your MCP client, and start using persistent memory without a pricing gate.",
   },
   {
-    question: "Can I export my data?",
+    question: "How do I get started?",
     answer:
-      "Yes. Pro and Team plans include full JSON export of all your project memory — episodes, facts, and the complete knowledge graph.",
+      "Open the control plane, create a project, then follow the docs to connect your MCP client and start using VibeRecall in your workflow.",
   },
 ];
 
 export const footerColumns: FooterLinkColumn[] = [
   {
     title: "Product",
-    links: ["Features", "Pricing", "Documentation", "Changelog"],
+    links: ["Features", "How It Works", "Documentation", "Changelog"],
   },
   {
     title: "Company",

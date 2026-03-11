@@ -8,7 +8,7 @@ import { FolderKanban, Plus } from "lucide-react";
 
 import type { ProjectActionState } from "@/app/projects/action-types";
 import { PROJECT_STORAGE_KEY } from "@/components/projects/project-selection";
-import type { PlanName, ProjectSummary } from "@/lib/api/types";
+import type { ProjectSummary } from "@/lib/api/types";
 import { projectQueryKeys } from "@/lib/query/keys";
 
 import { Button } from "@/components/ui/button";
@@ -42,11 +42,18 @@ type CreatedProjectMcpData = {
   tokenPlaintext: string;
 };
 
-const PLAN_STYLES: Record<PlanName, string> = {
-  free: "bg-stone-900 text-stone-50",
-  pro: "bg-amber-700 text-amber-50",
-  team: "bg-emerald-700 text-emerald-50",
-};
+function formatCreatedDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 export function ProjectListPlaceholder({
   projects,
@@ -165,10 +172,9 @@ export function ProjectListPlaceholder({
                       <p className="font-medium text-slate-100">{project.name}</p>
                       <p className="mt-1 font-mono text-xs text-slate-500">{project.id}</p>
                     </div>
-                    <div
-                      className={`rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em] ${PLAN_STYLES[project.plan]}`}
-                    >
-                      {project.plan}
+                    <div className="text-right">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Created</p>
+                      <p className="mt-1 text-xs text-slate-300">{formatCreatedDate(project.createdAt)}</p>
                     </div>
                   </div>
                 </Link>

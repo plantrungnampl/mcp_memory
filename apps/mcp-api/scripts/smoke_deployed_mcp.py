@@ -57,6 +57,17 @@ def _decode_payload(response, body: bytes) -> dict[str, Any]:
     return json.loads(text)
 
 
+def _decode_event_stream(response) -> dict[str, Any]:
+    while True:
+        raw_line = response.readline()
+        if not raw_line:
+            break
+        line = raw_line.decode("utf-8", errors="replace").strip()
+        if line.startswith("data: "):
+            return json.loads(line.removeprefix("data: "))
+    raise SmokeFailure("SSE response did not include a data frame")
+
+
 def _post_json(
     context: SmokeContext,
     payload: dict[str, Any],
@@ -83,6 +94,9 @@ def _post_json(
     )
     try:
         with request.urlopen(req, timeout=30) as response:
+            content_type = response.headers.get("content-type", "")
+            if content_type.startswith("text/event-stream"):
+                return _decode_event_stream(response), response
             body = response.read()
             return _decode_payload(response, body), response
     except error.HTTPError as exc:

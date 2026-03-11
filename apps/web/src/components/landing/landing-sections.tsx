@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   Award,
   CalendarClock,
-  Check,
   CheckCircle2,
   Code2,
   Lock,
@@ -23,7 +22,6 @@ import {
   faqItems,
   featureItems,
   howItWorksSteps,
-  pricingPlans,
   securityCards,
   temporalEdgeItems,
 } from "./landing-data";
@@ -159,64 +157,19 @@ export function LandingSections() {
         </div>
       </section>
 
-      <section id="pricing" className="bg-[#0e0e14] px-6 py-24 md:px-[120px]">
+      <section className="bg-[#0e0e14] px-6 py-24 md:px-[120px]">
         <div className="mx-auto w-full max-w-[1200px]">
-          <div className="mb-16 flex flex-col items-center gap-4 text-center">
-            <div className="rounded-full border border-[#7a2dbe]/35 bg-[#7a2dbe]/10 px-3.5 py-1.5">
-              <span className="text-[11px] font-semibold tracking-[0.12em] text-[#c084fc]">PRICING</span>
+          <div className="mx-auto max-w-[840px] rounded-[28px] border border-[#1f1f23] bg-[#111113] px-8 py-14 text-center md:px-14">
+            <div className="mb-5 inline-flex rounded-full border border-[#22c55e]/35 bg-[#22c55e]/10 px-3.5 py-1.5">
+              <span className="text-[11px] font-semibold tracking-[0.12em] text-[#22c55e]">FREE FOR EVERYONE</span>
             </div>
-            <h2 className={cn("text-4xl tracking-[-0.02em] text-white md:text-6xl", styles.fontDisplay)}>
-              Simple, Transparent Pricing
+            <h2 className={cn("mb-4 text-4xl tracking-[-0.02em] text-white md:text-6xl", styles.fontDisplay)}>
+              VibeRecall is free for everyone
             </h2>
-            <p className="text-base text-[#8b8b90]">Start free. Scale as your projects grow.</p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {pricingPlans.map((plan) => (
-              <article
-                key={plan.name}
-                className={cn(
-                  "relative rounded-2xl border border-[#1f1f23] bg-[#111113] p-8",
-                  plan.highlighted && "border-2 border-[#7a2dbe] bg-[#141417]",
-                  plan.highlighted && styles.priceHighlight,
-                )}
-              >
-                {plan.highlighted ? (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-b from-[#7a2dbe] to-[#9333ea] px-3 py-1 text-[11px] font-semibold text-white">
-                    MOST POPULAR
-                  </div>
-                ) : null}
-
-                <p className={cn("mb-2 text-sm font-semibold tracking-[0.08em]", plan.highlighted ? "text-[#a855f7]" : "text-[#8b8b90]")}>{plan.name}</p>
-                <div className="mb-4 flex items-end gap-1">
-                  <span className={cn("text-5xl leading-none text-white", styles.fontMono)}>{plan.price}</span>
-                  <span className="text-sm text-[#6b6b70]">{plan.cadence}</span>
-                </div>
-                <p className="mb-6 text-sm leading-relaxed text-[#8b8b90]">{plan.description}</p>
-                <div className="mb-6 h-px w-full bg-[#1f1f23]" />
-
-                <ul className="mb-7 space-y-3.5">
-                  {plan.features.map((feature) => (
-                    <li key={`${plan.name}-${feature}`} className="flex items-center gap-2.5 text-sm text-[#adadb0]">
-                      <Check className={cn("size-4 shrink-0", plan.highlighted ? "text-[#a855f7]" : "text-[#6b6b70]")} />
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-
-                <Link
-                  href={plan.ctaLabel === "Contact Sales" ? "#" : "/projects"}
-                  className={cn(
-                    "inline-flex w-full items-center justify-center rounded-[10px] px-6 py-3.5 text-sm font-semibold",
-                    plan.highlighted
-                      ? "bg-gradient-to-br from-[#7a2dbe] to-[#9333ea] text-white"
-                      : "border border-[#2a2a2e] text-[#adadb0] hover:border-[#3a3a3f] hover:text-white",
-                  )}
-                >
-                  {plan.ctaLabel}
-                </Link>
-              </article>
-            ))}
+            <p className="mx-auto max-w-[620px] text-base leading-[1.7] text-[#8b8b90]">
+              No pricing tiers, no sales gate, and no credit card required to get started. Create a
+              project, connect your MCP client, and start using persistent memory today.
+            </p>
           </div>
         </div>
       </section>
@@ -281,7 +234,7 @@ export function LandingSections() {
               href="/projects"
               className="inline-flex items-center rounded-xl bg-gradient-to-br from-[#7a2dbe] to-[#9333ea] px-8 py-4 text-base font-semibold text-white shadow-[0_12px_28px_-16px_rgba(122,45,190,1)]"
             >
-              Get Started Free
+              Get Started
             </Link>
             <Link
               href="#"

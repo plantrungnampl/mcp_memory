@@ -92,12 +92,6 @@
   transform: scaleX(1);
 }
 
-.priceHighlight {
-  box-shadow:
-    0 0 38px -14px rgba(122, 45, 190, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
 @media (max-width: 768px) {
   .heroBlobLeft,
   .heroBlobRight {

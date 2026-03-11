@@ -10,29 +10,46 @@ This repository currently contains:
 
 ## Overview
 
-VibeRecall gives coding agents a project-bound memory layer instead of a single global context blob. The backend exposes `viberecall_*` tools for saving events, searching facts, retrieving timelines, deleting episodes, indexing code, and building context packs. The web app handles project onboarding, token lifecycle, API log visibility, usage analytics, and graph exploration.
+VibeRecall gives coding agents a project-bound memory layer instead of a single global context blob. The backend exposes `viberecall_*` tools for canonical memory writes/search, temporal fact updates, salience pinning, graph/entity reads, entity resolution, repo indexing, and working-memory persistence. The web app handles project onboarding, token lifecycle, API log visibility, usage analytics, exports, and graph exploration.
 
 Core capabilities:
 
 - project-scoped MCP endpoints using bearer tokens
-- persistent memory flows: save, search, facts, timeline, update, delete
+- persistent memory flows: save, search, facts, timeline, update, delete, pin
+- graph/entity reasoning: search entities, neighbors, paths, explain fact, resolve reference
+- privileged entity-resolution flows: merge and split entities with canonical redirects
 - code indexing and context-pack retrieval for agent workflows
+- persisted working memory for task/session state
 - control-plane workflows for project setup, token issuance, usage, and logs
 - graph playground for visualizing memory entities and relationships
 
 Current public MCP tool surface:
 
+- `viberecall_save_episode`
 - `viberecall_save`
+- `viberecall_search_memory`
 - `viberecall_search`
+- `viberecall_get_fact`
 - `viberecall_get_facts`
 - `viberecall_update_fact`
+- `viberecall_pin_memory`
 - `viberecall_timeline`
 - `viberecall_get_status`
 - `viberecall_delete_episode`
+- `viberecall_get_operation`
 - `viberecall_index_repo`
+- `viberecall_get_index_status`
 - `viberecall_index_status`
 - `viberecall_search_entities`
+- `viberecall_get_neighbors`
+- `viberecall_find_paths`
+- `viberecall_explain_fact`
+- `viberecall_resolve_reference`
+- `viberecall_merge_entities`
+- `viberecall_split_entity`
 - `viberecall_get_context_pack`
+- `viberecall_working_memory_get`
+- `viberecall_working_memory_patch`
 
 ## Architecture At A Glance
 
@@ -50,29 +67,30 @@ Operational runtime dependencies:
 - `Redis` for KV, queue broker, and task result backend
 - `Celery` for background execution in production-shaped runtime
 
-The intended production-candidate topology is:
+Supported production-candidate topologies are:
 
-- `apps/web` on Vercel
-- API + worker + FalkorDB on Render
-- Redis-compatible key-value provisioned alongside the API/worker
+- `apps/web` + `apps/docs` on Vercel + API/worker/FalkorDB/Redis on a DigitalOcean Droplet via Docker Compose
+- `apps/web` + `apps/docs` on Vercel + API/worker/FalkorDB on Render with Redis provisioned separately
 
 ## Repository Layout
 
 | Path | Purpose |
 | --- | --- |
 | `apps/web` | Next.js control-plane UI |
+| `apps/docs` | Docusaurus public documentation site |
 | `apps/mcp-api` | FastAPI + FastMCP backend |
 | `ops/` | Deployment and operational runbooks |
 | `.env.example` | Local development environment contract |
 | `.env.production.example` | Production-shaped environment contract |
 | `render.yaml` | Render blueprint for API, worker, and FalkorDB |
+| `ops/docker-compose.digitalocean.yml` | DigitalOcean Droplet runtime compose for API, worker, FalkorDB, and Redis |
 | `.github/workflows/ci.yml` | Baseline CI for web and backend validation |
 
 ## Prerequisites
 
 - Node.js `20.9+`
 - `pnpm` `10+`
-- Python `3.12+`
+- Python `3.12` or `3.13` for backend work (`apps/mcp-api` currently declares `>=3.12,<3.14`)
 - `uv`
 - Docker, if you want the full local graph/queue runtime
 
@@ -110,22 +128,28 @@ At minimum, local development needs:
 pnpm dev:web
 ```
 
-### 4. Start the API
+### 4. Start the docs site
+
+```bash
+pnpm dev:docs
+```
+
+### 5. Start the API
 
 ```bash
 cd apps/mcp-api
 uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
 ```
 
-### 5. Open the onboarding surface
+### 6. Open the local surfaces
 
-Once both services are running:
+Once the web app, docs site, and API are running:
 
 - control plane: `http://localhost:3000`
-- onboarding docs: `http://localhost:3000/docs`
+- public docs: `http://localhost:3001`
 - MCP API health: `http://localhost:8010/healthz`
 
-### 6. Start graph/queue dependencies when needed
+### 7. Start graph/queue dependencies when needed
 
 If you want graph-backed memory or runtime integration suites locally:
 
@@ -145,6 +169,7 @@ Key env groups:
 ### Web and public URLs
 
 - `NEXT_PUBLIC_APP_URL`
+- `NEXT_PUBLIC_DOCS_URL`
 - `NEXT_PUBLIC_MCP_BASE_URL`
 - `PUBLIC_MCP_BASE_URL`
 - `NEXT_PUBLIC_SUPABASE_URL`
@@ -212,6 +237,7 @@ Important transport note:
 Canonical repo-level checks:
 
 ```bash
+pnpm validate:docs
 pnpm validate:web
 pnpm test:backend
 pnpm validate:release
@@ -219,12 +245,14 @@ pnpm validate:release
 
 What they do:
 
+- `pnpm validate:docs`
+  builds the standalone Docusaurus site in `apps/docs`
 - `pnpm validate:web`
   runs `typecheck`, `lint`, and `build` for `apps/web`
 - `pnpm test:backend`
   runs the backend test suite from `apps/mcp-api/tests`
 - `pnpm validate:release`
-  runs both web and backend validation gates
+  runs docs, web, and backend validation gates
 
 Optional integration suites:
 
@@ -253,11 +281,17 @@ This stack assumes:
 - Redis + FalkorDB as runtime dependencies
 - external Postgres through `DATABASE_URL`
 
-### Intended hosted topology
+### Supported hosted topologies
 
-- `apps/web` on Vercel
-- API + worker + FalkorDB on Render
-- Redis-compatible key-value provisioned separately
+- Vercel + DigitalOcean:
+  - `apps/web` on Vercel
+  - `apps/docs` on Vercel at `docs.<your-domain>`
+  - API + worker + FalkorDB + Redis on one DigitalOcean Droplet via Docker Compose
+- Vercel + Render:
+  - `apps/web` on Vercel
+  - `apps/docs` on Vercel at `docs.<your-domain>`
+  - API + worker + FalkorDB on Render
+  - Redis-compatible key-value provisioned separately
 
 Deployed MCP smoke:
 
@@ -267,6 +301,8 @@ pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <proj
 
 For the complete rollout sequence, see:
 
+- [`ops/vercel-digitalocean-public-ga.md`](./ops/vercel-digitalocean-public-ga.md)
+- [`ops/docker-compose.digitalocean.yml`](./ops/docker-compose.digitalocean.yml)
 - [`ops/vercel-render-public-ga.md`](./ops/vercel-render-public-ga.md)
 - [`render.yaml`](./render.yaml)
 - [`apps/mcp-api/README.md`](./apps/mcp-api/README.md)
@@ -275,12 +311,18 @@ For the complete rollout sequence, see:
 
 Start here depending on what you need:
 
+- public docs site source:
+  [`apps/docs`](./apps/docs)
 - backend runtime and MCP specifics:
   [`apps/mcp-api/README.md`](./apps/mcp-api/README.md)
 - public-GA rollout checklist:
+  [`ops/vercel-digitalocean-public-ga.md`](./ops/vercel-digitalocean-public-ga.md)
+- public-GA rollout checklist (Render path):
   [`ops/vercel-render-public-ga.md`](./ops/vercel-render-public-ga.md)
 - local production-shaped compose surface:
   [`ops/docker-compose.production.yml`](./ops/docker-compose.production.yml)
+- DigitalOcean hosted runtime compose:
+  [`ops/docker-compose.digitalocean.yml`](./ops/docker-compose.digitalocean.yml)
 - local runtime dependencies:
   [`ops/docker-compose.runtime.yml`](./ops/docker-compose.runtime.yml)
 - environment contracts:

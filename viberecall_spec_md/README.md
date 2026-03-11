@@ -1,6 +1,6 @@
 # VibeRecall System Design
 
-Bộ tài liệu này mô tả **trạng thái triển khai hiện tại** của VibeRecall trong repository này, không còn giữ vai trò là spec Neo4j/Fly/MVP 5-tool kiểu ban đầu.
+Bộ tài liệu này mô tả **trạng thái triển khai hiện tại** của VibeRecall trong repository này, không còn giữ vai trò là spec Neo4j/Fly/MVP kiểu ban đầu.
 
 ## Current stack
 - Backend: **Python + FastAPI + FastMCP**
@@ -11,17 +11,32 @@ Bộ tài liệu này mô tả **trạng thái triển khai hiện tại** của
 - Deployment target: **Vercel** cho web, **Render** cho API/worker/FalkorDB
 
 ## Current public MCP tool surface
+Current runtime exposes **25** public tools:
+- `viberecall_save_episode`
 - `viberecall_save`
+- `viberecall_search_memory`
 - `viberecall_search`
+- `viberecall_get_fact`
 - `viberecall_get_facts`
 - `viberecall_update_fact`
+- `viberecall_pin_memory`
 - `viberecall_timeline`
 - `viberecall_get_status`
 - `viberecall_delete_episode`
+- `viberecall_get_operation`
 - `viberecall_index_repo`
+- `viberecall_get_index_status`
 - `viberecall_index_status`
 - `viberecall_search_entities`
+- `viberecall_get_neighbors`
+- `viberecall_find_paths`
+- `viberecall_explain_fact`
+- `viberecall_resolve_reference`
+- `viberecall_merge_entities`
+- `viberecall_split_entity`
 - `viberecall_get_context_pack`
+- `viberecall_working_memory_get`
+- `viberecall_working_memory_patch`
 
 ## Tài liệu trong thư mục này
 1. [00_overview.md](00_overview.md)
@@ -42,6 +57,6 @@ Bộ tài liệu này mô tả **trạng thái triển khai hiện tại** của
 
 ## Reading order
 - Bắt đầu với `00_overview.md` nếu cần hiểu product surface và hard decisions.
-- Đọc `01_architecture.md` + `03_auth_tenancy.md` để nắm trust boundaries và topology thật sự đang chạy.
-- Đọc `04_tools_contract.md` + `05_data_model_temporal.md` + `06_pipelines_latency.md` khi làm việc với MCP/runtime/indexing.
+- Đọc `01_architecture.md` + `03_auth_tenancy.md` để nắm trust boundaries, scope model, và topology thật sự đang chạy.
+- Đọc `04_tools_contract.md` + `05_data_model_temporal.md` + `06_pipelines_latency.md` khi làm việc với MCP/runtime/indexing/canonical memory.
 - Đọc `09_deployment_roadmap.md` + `10_current_state_alignment.md` khi chuẩn bị release, docs refresh, hoặc kiểm tra spec drift.

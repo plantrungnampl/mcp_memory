@@ -16,7 +16,7 @@ Client:
 - `tools/list`
 
 Server:
-- trả 11 public `viberecall_*` tools với `inputSchema`
+- trả catalog public `viberecall_*` tools phù hợp token scope; current runtime surface đầy đủ là 25 tools với `inputSchema`
 
 ## A3) Call `viberecall_save`
 Client:
@@ -32,11 +32,13 @@ Server:
 Client:
 - `tools/call`
 - `name = viberecall_index_repo`
-- `arguments = { repo_path, mode, base_ref?, head_ref?, max_files? }`
+- `arguments = { repo_source, mode = "FULL_SNAPSHOT", max_files?, idempotency_key? }`
+- `repo_source.type = "git" | "workspace_bundle"`
 
 Server:
 - `result.status = "ACCEPTED"`
-- `result.index_id`
+- `result.index_run_id`
+- `result.operation_id`
 - `result.job_id`
 
 ## A5) Stale session recovery

@@ -1,11 +1,8 @@
 import {
   createExportAction,
-  migrateInlineToObjectAction,
   mintTokenAction,
-  purgeProjectAction,
   revokeTokenAction,
   rotateTokenAction,
-  runRetentionAction,
 } from "@/app/projects/actions";
 import { getProjectOpsDashboard } from "@/app/projects/_lib/ops-dashboard";
 import { getAuthenticatedProjectUser } from "@/app/projects/_lib/projects-server";
@@ -30,13 +27,10 @@ export default async function ProjectTokensPage({ params }: TokensPageProps) {
     <TokenDashboardPanel
       createExportAction={createExportAction}
       initialData={initialData}
-      migrateInlineToObjectAction={migrateInlineToObjectAction}
       mintTokenAction={mintTokenAction}
       projectId={projectId}
-      purgeProjectAction={purgeProjectAction}
       revokeTokenAction={revokeTokenAction}
       rotateTokenAction={rotateTokenAction}
-      runRetentionAction={runRetentionAction}
     />
   );
 }

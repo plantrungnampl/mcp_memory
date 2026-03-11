@@ -19,7 +19,7 @@ async def create_operation(
     token_id: str | None,
     request_id: str,
     kind: str,
-    status: str = "ACCEPTED",
+    status: str = "PENDING",
     resource_type: str | None = None,
     resource_id: str | None = None,
     metadata: dict | None = None,
@@ -126,7 +126,7 @@ async def mark_operation_running(
             set status = 'RUNNING',
                 updated_at = now()
             where operation_id = :operation_id
-              and status = 'ACCEPTED'
+              and status in ('PENDING', 'FAILED_RETRYABLE')
             """
         ),
         {"operation_id": operation_id},
@@ -163,12 +163,14 @@ async def fail_operation(
     *,
     operation_id: str,
     error_payload: dict,
+    retryable: bool = False,
 ) -> None:
+    next_status = "FAILED_RETRYABLE" if retryable else "FAILED_TERMINAL"
     await session.execute(
         text(
             """
             update operations
-            set status = 'FAILED',
+            set status = :status,
                 error_json = cast(:error_json as jsonb),
                 updated_at = now(),
                 completed_at = now()
@@ -177,6 +179,7 @@ async def fail_operation(
         ),
         {
             "operation_id": operation_id,
+            "status": next_status,
             "error_json": _json(error_payload),
         },
     )
@@ -292,7 +295,7 @@ async def list_recent_pending_operations(
             select operation_id, kind, status, resource_type, resource_id, created_at
             from operations
             where project_id = :project_id
-              and status in ('ACCEPTED', 'RUNNING')
+              and status in ('PENDING', 'RUNNING', 'FAILED_RETRYABLE')
             order by created_at desc
             limit :limit
             """

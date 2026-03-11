@@ -4,6 +4,8 @@ import { useMemo } from "react";
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
 
+import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
+
 type QuickIntegrationCredentialsProps = {
   endpoint: string | null;
   tokenFallback: string | null;
@@ -30,7 +32,10 @@ async function copyText(content: string | null, label: string): Promise<void> {
     return;
   }
   try {
-    await navigator.clipboard.writeText(content);
+    const copied = await copyTextToClipboard(content);
+    if (!copied) {
+      throw new Error("copy failed");
+    }
     toast.success(`${label} copied.`);
   } catch {
     toast.error(`Unable to copy ${label.toLowerCase()}.`);

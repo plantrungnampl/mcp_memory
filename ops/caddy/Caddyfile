@@ -1,0 +1,5 @@
+# Replace api.example.com with your real API domain before use.
+api.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8010
+}

@@ -26,6 +26,19 @@ type ProjectsDirectoryPanelProps = {
   ) => Promise<ProjectActionState>;
 };
 
+function formatCreatedDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 export function ProjectsDirectoryPanel({ createProjectAction }: ProjectsDirectoryPanelProps) {
   const userEmail = useProjectsUserEmail();
   const pathname = usePathname();
@@ -105,7 +118,7 @@ export function ProjectsDirectoryPanel({ createProjectAction }: ProjectsDirector
                     <thead className="text-[11px] uppercase tracking-[0.14em] text-slate-400">
                       <tr>
                         <th className="px-3 py-2">Project</th>
-                        <th className="px-3 py-2">Plan</th>
+                        <th className="px-3 py-2">Created</th>
                         <th className="px-3 py-2">Health</th>
                         <th className="px-3 py-2">VibeTokens</th>
                         <th className="px-3 py-2 text-right">Open</th>
@@ -118,7 +131,7 @@ export function ProjectsDirectoryPanel({ createProjectAction }: ProjectsDirector
                             <p className="font-semibold text-slate-100">{row.name}</p>
                             <p className="font-mono text-xs text-slate-500">{row.id}</p>
                           </td>
-                          <td className="px-3 py-3 uppercase text-slate-300">{row.plan}</td>
+                          <td className="px-3 py-3 text-slate-300">{formatCreatedDate(row.createdAt)}</td>
                           <td className="px-3 py-3 uppercase text-slate-300">{row.healthStatus}</td>
                           <td className="px-3 py-3 font-mono text-slate-200">
                             {row.vibeTokensWindow.toLocaleString()}

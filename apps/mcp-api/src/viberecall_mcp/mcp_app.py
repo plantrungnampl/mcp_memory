@@ -38,19 +38,26 @@ from viberecall_mcp.request_context import (
     reset_request_context,
     set_request_context,
 )
-from viberecall_mcp.tool_access import filter_tools_for_plan
+from viberecall_mcp.tool_access import filter_tools_for_token
 from viberecall_mcp.tool_handlers import (
     handle_delete_episode,
     handle_get_context_pack,
     handle_get_fact,
+    handle_find_paths,
+    handle_get_neighbors,
     handle_get_status,
     handle_get_operation,
     handle_get_facts,
     handle_index_repo,
     handle_index_status,
+    handle_merge_entities,
+    handle_pin_memory,
+    handle_resolve_reference,
     handle_save,
+    handle_explain_fact,
     handle_search,
     handle_search_entities,
+    handle_split_entity,
     handle_timeline,
     handle_update_fact,
     handle_working_memory_get,
@@ -118,8 +125,10 @@ def _json_safe(value: Any) -> Any:
 
 
 def as_tool_result(payload: dict) -> ToolResult:
+    safe_payload = _json_safe(payload)
     return ToolResult(
-        content=[types.TextContent(type="text", text=json.dumps(_json_safe(payload)))],
+        content=[types.TextContent(type="text", text=json.dumps(safe_payload))],
+        structured_content=safe_payload,
     )
 
 
@@ -248,7 +257,11 @@ class VibeRecallMiddleware(Middleware):
         call_next: Callable[[MiddlewareContext[types.ListToolsRequest]], Awaitable[list[Any]]],
     ) -> list[Any]:
         request_context = get_authenticated_request_context()
-        tools = filter_tools_for_plan(request_context.plan or "free", list(await call_next(context)))
+        tools = filter_tools_for_token(
+            plan=request_context.plan or "free",
+            scopes=request_context.scopes,
+            tools=list(await call_next(context)),
+        )
         async with open_db_session() as session:
             await insert_audit_log(
                 session,
@@ -387,8 +400,57 @@ async def run_tool(tool_name: str, arguments: dict[str, Any]) -> ToolResult:
                         token=token,
                         arguments=handler_arguments,
                     )
+                elif tool_name == "viberecall_pin_memory":
+                    payload = await handle_pin_memory(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
                 elif tool_name == "viberecall_search_entities":
                     payload = await handle_search_entities(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_resolve_reference":
+                    payload = await handle_resolve_reference(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_merge_entities":
+                    payload = await handle_merge_entities(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_split_entity":
+                    payload = await handle_split_entity(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_get_neighbors":
+                    payload = await handle_get_neighbors(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_find_paths":
+                    payload = await handle_find_paths(
+                        request_id=request_context.request_id,
+                        project_id=request_context.project_id or "",
+                        token=token,
+                        arguments=handler_arguments,
+                    )
+                elif tool_name == "viberecall_explain_fact":
+                    payload = await handle_explain_fact(
                         request_id=request_context.request_id,
                         project_id=request_context.project_id or "",
                         token=token,
@@ -525,7 +587,7 @@ def build_fastmcp_server() -> FastMCP:
                 name=tool.name,
                 description=tool.description,
                 parameters=tool.input_schema,
-                output_schema=None,
+                output_schema=tool.output_schema,
                 fn=make_tool_wrapper(tool.name),
             )
         )

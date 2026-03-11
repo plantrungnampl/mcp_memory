@@ -4,17 +4,31 @@ FastAPI and FastMCP backend bootstrap for VibeRecall.
 
 ## MCP tools (public)
 
+- `viberecall_save_episode`
 - `viberecall_save`
+- `viberecall_search_memory`
 - `viberecall_search`
+- `viberecall_get_fact`
 - `viberecall_get_facts`
 - `viberecall_update_fact`
+- `viberecall_pin_memory`
 - `viberecall_timeline`
 - `viberecall_get_status`
 - `viberecall_delete_episode`
+- `viberecall_get_operation`
 - `viberecall_index_repo`
+- `viberecall_get_index_status`
 - `viberecall_index_status`
 - `viberecall_search_entities`
+- `viberecall_get_neighbors`
+- `viberecall_find_paths`
+- `viberecall_explain_fact`
+- `viberecall_resolve_reference`
+- `viberecall_merge_entities`
+- `viberecall_split_entity`
 - `viberecall_get_context_pack`
+- `viberecall_working_memory_get`
+- `viberecall_working_memory_patch`
 
 ## Graphiti source policy
 
@@ -38,10 +52,10 @@ uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
 
 ## Runtime notes
 
-- MCP runtime is currently full-access for any valid bearer token:
-  - `tools/list` returns the full public toolset for all authenticated users.
-  - Runtime plan, scope, rate-limit, and quota gates are bypassed for MCP tool calls.
-  - Token validity, expiry, revocation, and project binding are still enforced.
+- MCP runtime currently treats `plan` as non-blocking metadata:
+  - `free`, `pro`, and `team` share the same tool catalog.
+  - `tools/list` and `tools/call` still enforce token scope filtering.
+  - Token validity, expiry, revocation, project binding, and rate limiting remain enforced.
 - Control-plane plan/billing metadata still exists outside MCP runtime and may continue to show `free|pro|team`.
 - Backend config reads the repository root `/.env` by default; if it does not exist, it falls back to `apps/mcp-api/.env`.
 - Process-level environment variables override `.env`. If you previously exported `FALKORDB_HOST`, `FALKORDB_PORT`, `MEMORY_BACKEND`, or queue/KV vars in your shell, the running process may ignore values from `/.env`.
@@ -49,6 +63,10 @@ uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
   - `MEMORY_BACKEND=local|falkordb|graphiti`
   - `KV_BACKEND=local|redis`
   - `QUEUE_BACKEND=eager|celery`
+- Canonical MCP scope surface now includes:
+  - `memory:read`, `memory:write`, `facts:write`, `entities:read`, `graph:read`
+  - `index:read`, `index:run`, `resolution:write`, `ops:read`, `delete:write`
+  - legacy aliases remain accepted for compatibility on some surfaces
 - Graphiti runtime settings:
   - `GRAPHITI_API_KEY` is required to enable Graphiti sync.
   - `GRAPHITI_LLM_MODEL` defaults to `gpt-4.1-mini`.
@@ -155,6 +173,7 @@ uv run celery -A viberecall_mcp.workers.celery_app worker -l info
 ## Production container surface
 
 - Repository root now includes `.env.production.example` plus `ops/docker-compose.production.yml`.
+- Repository root also includes `ops/docker-compose.digitalocean.yml` for the hosted DigitalOcean Droplet runtime.
 - Default public-GA runtime shape is:
   - `MEMORY_BACKEND=falkordb`
   - `KV_BACKEND=redis`
@@ -179,6 +198,26 @@ docker compose -f ops/docker-compose.production.yml --env-file .env.production u
   - `PUBLIC_MCP_BASE_URL`
   - `ALLOWED_ORIGINS`
   - `NEXT_PUBLIC_MCP_BASE_URL` on the web deployment
+
+### DigitalOcean hosted runtime
+
+For the split deployment topology with web on Vercel and backend runtime on a single DigitalOcean Droplet:
+
+```bash
+cp .env.production.example .env.production
+docker compose -f ops/docker-compose.digitalocean.yml --env-file .env.production up -d --build
+```
+
+- Expected services:
+  - `api` bound to `127.0.0.1:8010`
+  - `worker` consuming Celery queue `memory`
+  - `redis` with append-only persistence
+  - `falkordb` with persistent graph data
+- Postgres remains external and must be provided through `DATABASE_URL`.
+- `CONTROL_PLANE_INTERNAL_SECRET` must match exactly between the Vercel web deployment and the DigitalOcean runtime.
+- The DigitalOcean compose file mounts persistent host directories for FalkorDB plus local object/export storage.
+- Put a reverse proxy in front of `127.0.0.1:8010`; the repo provides `ops/caddy/Caddyfile` as the default host-level proxy config.
+- For the full rollout sequence, use `ops/vercel-digitalocean-public-ga.md`.
 
 ## Deployed MCP smoke
 

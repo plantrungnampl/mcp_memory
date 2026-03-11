@@ -1,6 +1,6 @@
 # Vercel + Render Public GA
 
-This runbook turns the current repository state into a public production candidate using Vercel for `apps/web` and Render for the MCP API runtime.
+This runbook turns the current repository state into a public production candidate using Vercel for `apps/web` and `apps/docs`, plus Render for the MCP API runtime.
 
 ## 1. Release gate
 
@@ -12,12 +12,13 @@ pnpm validate:release
 
 Expected result:
 
+- `pnpm validate:docs` passes
 - `pnpm validate:web` passes
 - `pnpm test:backend` passes
 
-## 2. Vercel web deployment
+## 2. Vercel web + docs deployment
 
-Create a Vercel project with these settings:
+Create the control-plane Vercel project with these settings:
 
 - Root Directory: `apps/web`
 - Framework Preset: `Next.js`
@@ -26,6 +27,7 @@ Create a Vercel project with these settings:
 Set these production env vars in Vercel:
 
 - `NEXT_PUBLIC_APP_URL=https://app.<your-domain>`
+- `NEXT_PUBLIC_DOCS_URL=https://docs.<your-domain>`
 - `NEXT_PUBLIC_SUPABASE_URL=...`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...`
 - `NEXT_PUBLIC_MCP_BASE_URL=https://api.<your-domain>`
@@ -39,6 +41,19 @@ Notes:
 - Keep `DEPLOYMENT_VERSION` fixed per release so multi-instance rollouts preserve version skew protection.
 - Keep `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` stable across all instances of the same deployment.
 - Put a reverse proxy or platform edge in front of the Node runtime if you self-host outside Vercel.
+
+Create the public docs Vercel project with these settings:
+
+- Root Directory: `apps/docs`
+- Framework Preset: `Other`
+- Install Command: `pnpm install --frozen-lockfile`
+- Build Command: `pnpm build`
+- Output Directory: `build`
+- Production domain: `docs.<your-domain>`
+
+Set these production env vars in the docs Vercel project:
+
+- `DOCUSAURUS_URL=https://docs.<your-domain>`
 
 ## 3. Render API + worker deployment
 
@@ -108,8 +123,9 @@ Public GA only proceeds if all five routes load without control-plane assertion 
 
 ## 6. Cutover rule
 
-Promote the release only when all three conditions are true:
+Promote the release only when all four conditions are true:
 
 1. `pnpm validate:release` passed on the release revision
 2. deployed MCP smoke passed against `https://api.<your-domain>`
 3. authenticated browser QA passed on `https://app.<your-domain>`
+4. public docs site loads successfully on `https://docs.<your-domain>` and `https://app.<your-domain>/docs` redirects there

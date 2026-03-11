@@ -5,7 +5,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActionState, useEffect, useMemo, useState } from "react";
 import {
   Activity,
-  Database,
   Download,
   FileArchive,
   HeartPulse,
@@ -14,14 +13,12 @@ import {
   RefreshCw,
   RotateCw,
   ShieldX,
-  Trash2,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import type {
   ExportActionState,
-  MaintenanceActionState,
   TokenActionState,
 } from "@/app/projects/action-types";
 import type {
@@ -34,7 +31,6 @@ import { fetchQueryJson, normalizeQueryError } from "@/lib/query/fetch";
 import { projectQueryKeys } from "@/lib/query/keys";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { QuickIntegrationCredentials } from "@/components/projects/quick-integration-credentials";
 import { TokenIssuedModal } from "@/components/projects/token-issued-modal";
 
@@ -48,18 +44,6 @@ type TokenDashboardPanelProps = {
     prevState: ExportActionState,
     formData: FormData,
   ) => Promise<ExportActionState>;
-  runRetentionAction: (
-    prevState: MaintenanceActionState,
-    formData: FormData,
-  ) => Promise<MaintenanceActionState>;
-  migrateInlineToObjectAction: (
-    prevState: MaintenanceActionState,
-    formData: FormData,
-  ) => Promise<MaintenanceActionState>;
-  purgeProjectAction: (
-    prevState: MaintenanceActionState,
-    formData: FormData,
-  ) => Promise<MaintenanceActionState>;
 };
 
 const INITIAL_STATE: TokenActionState = {
@@ -78,15 +62,6 @@ const INITIAL_EXPORT_STATE: ExportActionState = {
   status: null,
 };
 
-const INITIAL_MAINTENANCE_STATE: MaintenanceActionState = {
-  ok: false,
-  message: null,
-  nonce: null,
-  jobId: null,
-  kind: null,
-  status: null,
-};
-
 type ChartBar = {
   dayLabel: string;
   height: number;
@@ -96,7 +71,6 @@ type ChartBar = {
 const FALLBACK_SERIES = [45, 62, 38, 85, 55, 72, 48, 92, 110, 78, 95, 120, 68, 140];
 const OPS_DASHBOARD_STALE_TIME_MS = 15_000;
 const OPS_DASHBOARD_POLL_INTERVAL_MS = 5_000;
-const MAINTENANCE_POLL_WINDOW_MS = 30_000;
 
 function formatRelativeTime(value: string | null): string {
   if (!value) {
@@ -224,19 +198,6 @@ function formatExportErrorMessage(error: string): ExportErrorMessage {
   };
 }
 
-function maintenanceKindLabel(kind: MaintenanceActionState["kind"]): string {
-  if (kind === "retention") {
-    return "Retention";
-  }
-  if (kind === "purge_project") {
-    return "Purge";
-  }
-  if (kind === "migrate_inline_to_object") {
-    return "Migrate inline->object";
-  }
-  return "Maintenance";
-}
-
 function toBars(series: UsageSeries | null): ChartBar[] {
   if (!series || series.series.length === 0) {
     const max = Math.max(...FALLBACK_SERIES);
@@ -279,15 +240,10 @@ export function TokenDashboardPanel({
   rotateTokenAction,
   revokeTokenAction,
   createExportAction,
-  runRetentionAction,
-  migrateInlineToObjectAction,
-  purgeProjectAction,
 }: TokenDashboardPanelProps) {
   const activeProjectId = projectId;
   const queryClient = useQueryClient();
-  const [purgeConfirmInput, setPurgeConfirmInput] = useState("");
   const [dismissedIssuedTokenNonce, setDismissedIssuedTokenNonce] = useState<string | null>(null);
-  const [maintenancePollUntil, setMaintenancePollUntil] = useState<number | null>(null);
   const [mintState, mintFormAction, mintPending] = useActionState(mintTokenAction, INITIAL_STATE);
   const [rotateState, rotateFormAction, rotatePending] = useActionState(
     rotateTokenAction,
@@ -301,18 +257,6 @@ export function TokenDashboardPanel({
     createExportAction,
     INITIAL_EXPORT_STATE,
   );
-  const [retentionState, retentionFormAction, retentionPending] = useActionState(
-    runRetentionAction,
-    INITIAL_MAINTENANCE_STATE,
-  );
-  const [migrateState, migrateFormAction, migratePending] = useActionState(
-    migrateInlineToObjectAction,
-    INITIAL_MAINTENANCE_STATE,
-  );
-  const [purgeState, purgeFormAction, purgePending] = useActionState(
-    purgeProjectAction,
-    INITIAL_MAINTENANCE_STATE,
-  );
 
   const opsDashboardQuery = useQuery({
     queryKey: projectQueryKeys.opsDashboard(projectId),
@@ -322,32 +266,13 @@ export function TokenDashboardPanel({
     staleTime: OPS_DASHBOARD_STALE_TIME_MS,
     refetchInterval(query) {
       const dashboard = query.state.data as ProjectOpsDashboardPayload | undefined;
-      const hasRunningExports =
-        dashboard?.exports.some(
-          (entry) => entry.status === "pending" || entry.status === "processing",
-        ) ?? false;
-      const shouldTrackMaintenance =
-        maintenancePollUntil !== null && maintenancePollUntil > Date.now();
-
-      return hasRunningExports || shouldTrackMaintenance
+      return dashboard?.exports.some(
+        (entry) => entry.status === "pending" || entry.status === "processing",
+      )
         ? OPS_DASHBOARD_POLL_INTERVAL_MS
         : false;
     },
   });
-
-  useEffect(() => {
-    if (maintenancePollUntil === null) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setMaintenancePollUntil(null);
-    }, Math.max(0, maintenancePollUntil - Date.now()));
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [maintenancePollUntil]);
 
   const dashboardData = opsDashboardQuery.data;
   const tokens = dashboardData.tokens;
@@ -363,15 +288,7 @@ export function TokenDashboardPanel({
     : null;
 
   useEffect(() => {
-    if (
-      mintState.ok ||
-      rotateState.ok ||
-      revokeState.ok ||
-      exportState.ok ||
-      retentionState.ok ||
-      migrateState.ok ||
-      purgeState.ok
-    ) {
+    if (mintState.ok || rotateState.ok || revokeState.ok || exportState.ok) {
       void queryClient.invalidateQueries({
         queryKey: projectQueryKeys.opsDashboard(projectId),
       });
@@ -381,12 +298,6 @@ export function TokenDashboardPanel({
     mintState.ok,
     exportState.nonce,
     exportState.ok,
-    migrateState.nonce,
-    migrateState.ok,
-    purgeState.nonce,
-    purgeState.ok,
-    retentionState.nonce,
-    retentionState.ok,
     revokeState.ok,
     revokeState.nonce,
     rotateState.nonce,
@@ -406,67 +317,7 @@ export function TokenDashboardPanel({
     toast.error(exportState.message);
   }, [exportState.message, exportState.nonce, exportState.ok]);
 
-  useEffect(() => {
-    if (!retentionState.nonce || !retentionState.message) {
-      return;
-    }
-    if (retentionState.ok) {
-      toast.success(retentionState.message);
-      return;
-    }
-    toast.error(retentionState.message);
-  }, [retentionState.message, retentionState.nonce, retentionState.ok]);
-
-  useEffect(() => {
-    if (!migrateState.nonce || !migrateState.message) {
-      return;
-    }
-    if (migrateState.ok) {
-      toast.success(migrateState.message);
-      return;
-    }
-    toast.error(migrateState.message);
-  }, [migrateState.message, migrateState.nonce, migrateState.ok]);
-
-  useEffect(() => {
-    if (!purgeState.nonce || !purgeState.message) {
-      return;
-    }
-    if (purgeState.ok) {
-      toast.success(purgeState.message);
-      return;
-    }
-    toast.error(purgeState.message);
-  }, [purgeState.message, purgeState.nonce, purgeState.ok]);
-
-  useEffect(() => {
-    if (!retentionState.ok && !migrateState.ok && !purgeState.ok) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setMaintenancePollUntil(Date.now() + MAINTENANCE_POLL_WINDOW_MS);
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [
-    migrateState.jobId,
-    migrateState.nonce,
-    migrateState.ok,
-    purgeState.jobId,
-    purgeState.nonce,
-    purgeState.ok,
-    retentionState.jobId,
-    retentionState.nonce,
-    retentionState.ok,
-  ]);
-
-  const visibleTokens = useMemo(
-    () => tokens.filter((token) => token.status !== "revoked"),
-    [tokens],
-  );
+  const visibleTokens = useMemo(() => tokens.filter((token) => token.status !== "revoked"), [tokens]);
   const activeToken = useMemo(() => visibleTokens[0] ?? null, [visibleTokens]);
   const activeTokensCount = visibleTokens.length;
   const chartBars = useMemo(() => toBars(usageSeries), [usageSeries]);
@@ -926,93 +777,6 @@ export function TokenDashboardPanel({
                   : "Select a project to manage exports."}
               </div>
             )}
-          </article>
-
-          <article className="space-y-3 rounded-xl border border-[var(--vr-border)] bg-[var(--vr-bg-elevated)] p-4">
-            <h3 className="text-sm font-semibold text-[var(--vr-text-strong)]">Maintenance</h3>
-
-            {activeProjectId ? (
-              <>
-                <form action={retentionFormAction}>
-                  <input name="project_id" type="hidden" value={activeProjectId} />
-                  <Button disabled={retentionPending} size="sm" type="submit" variant="outline">
-                    <RotateCw className="size-3.5" />
-                    {retentionPending ? "Queueing retention..." : "Run retention"}
-                  </Button>
-                </form>
-
-                <form
-                  action={migrateFormAction}
-                  className="space-y-2 rounded-lg border border-[var(--vr-border)] bg-[var(--vr-bg-card)] p-3"
-                >
-                  <input name="project_id" type="hidden" value={activeProjectId} />
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs text-[var(--vr-text-main)]">Move large inline episodes to object storage.</p>
-                    <Button
-                      disabled={migratePending}
-                      size="sm"
-                      type="submit"
-                      variant="outline"
-                    >
-                      <Database className="size-3.5" />
-                      {migratePending ? "Queueing..." : "Run migration"}
-                    </Button>
-                  </div>
-                  <label className="flex items-center gap-2 text-xs text-amber-200">
-                    <input className="size-4" name="force" type="checkbox" value="1" />
-                    Force migration (advanced)
-                  </label>
-                </form>
-
-                <form
-                  action={purgeFormAction}
-                  className="space-y-2 rounded-lg border border-rose-500/40 bg-rose-900/20 p-3"
-                >
-                  <input name="project_id" type="hidden" value={activeProjectId} />
-                  <p className="text-xs text-rose-200">
-                    Purge deletes project graph, episodes, exports, and scrubs logs.
-                  </p>
-                  <Input
-                    autoComplete="off"
-                    className="h-9 border-rose-500/45 bg-rose-950/20 text-rose-50 placeholder:text-rose-200/65"
-                    name="confirm_project_id"
-                    onChange={(event) => setPurgeConfirmInput(event.target.value)}
-                    placeholder={`Type ${activeProjectId} to confirm`}
-                    value={purgeConfirmInput}
-                  />
-                  <Button
-                    className="border-rose-500/50 bg-rose-900/20 text-rose-100 hover:bg-rose-900/35"
-                    disabled={purgePending || purgeConfirmInput !== activeProjectId}
-                    size="sm"
-                    type="submit"
-                    variant="outline"
-                  >
-                    <Trash2 className="size-3.5" />
-                    {purgePending ? "Queueing purge..." : "Purge project"}
-                  </Button>
-                </form>
-              </>
-            ) : (
-              <div className="rounded-lg border border-dashed border-[var(--vr-border)] bg-[var(--vr-bg-card)] px-3 py-4 text-xs text-[var(--vr-text-dim)]">
-                Select a project to run maintenance actions.
-              </div>
-            )}
-
-            {retentionState.jobId ? (
-              <div className="rounded-lg border border-emerald-300/35 bg-emerald-900/20 px-3 py-2 text-xs text-emerald-200">
-                {maintenanceKindLabel(retentionState.kind)} queued: {retentionState.jobId}
-              </div>
-            ) : null}
-            {migrateState.jobId ? (
-              <div className="rounded-lg border border-amber-300/35 bg-amber-900/20 px-3 py-2 text-xs text-amber-200">
-                {maintenanceKindLabel(migrateState.kind)} queued: {migrateState.jobId}
-              </div>
-            ) : null}
-            {purgeState.jobId ? (
-              <div className="rounded-lg border border-rose-300/35 bg-rose-900/20 px-3 py-2 text-xs text-rose-200">
-                {maintenanceKindLabel(purgeState.kind)} queued: {purgeState.jobId}
-              </div>
-            ) : null}
           </article>
         </div>
       </section>

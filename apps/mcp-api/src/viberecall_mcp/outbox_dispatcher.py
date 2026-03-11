@@ -8,10 +8,12 @@ from viberecall_mcp.code_index import attach_index_job_id
 from viberecall_mcp.config import get_settings
 from viberecall_mcp.repositories.episodes import set_episode_job_id
 from viberecall_mcp.repositories.operations import (
+    complete_operation,
     fail_operation,
     list_dispatchable_outbox_events,
     mark_outbox_dispatched,
     mark_outbox_failed,
+    mark_operation_running,
     set_operation_job_id,
 )
 from viberecall_mcp.runtime import get_task_queue
@@ -90,6 +92,18 @@ async def dispatch_outbox_events(
                     commit=False,
                 )
                 await set_operation_job_id(session, operation_id=current_operation_id, job_id=job_id)
+            elif row["event_type"] == "entity_resolution.search_reproject":
+                await mark_operation_running(session, operation_id=current_operation_id)
+            elif row["event_type"] == "entity_resolution.graph_reproject":
+                await mark_operation_running(session, operation_id=current_operation_id)
+                await complete_operation(
+                    session,
+                    operation_id=current_operation_id,
+                    result_payload=payload.get("result_payload") or {
+                        "resolution_event_id": payload.get("resolution_event_id"),
+                        "event_kind": payload.get("event_kind"),
+                    },
+                )
             else:
                 raise RuntimeError(f"Unknown outbox event type: {row['event_type']}")
 

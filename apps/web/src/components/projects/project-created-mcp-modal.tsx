@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, ExternalLink, KeyRound, Link as LinkIcon, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
 import { Button } from "@/components/ui/button";
 
 type McpClientKey = "codex" | "claude" | "cursor" | "cline";
@@ -120,7 +121,10 @@ function buildSnippets(endpoint: string, tokenPlaintext: string): McpSnippet[] {
 
 async function copyText(content: string, label: string): Promise<void> {
   try {
-    await navigator.clipboard.writeText(content);
+    const copied = await copyTextToClipboard(content);
+    if (!copied) {
+      throw new Error("copy failed");
+    }
     toast.success(`${label} copied.`);
   } catch {
     toast.error(`Unable to copy ${label.toLowerCase()}.`);

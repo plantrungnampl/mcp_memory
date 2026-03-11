@@ -31,7 +31,7 @@ Chịu trách nhiệm:
 Chịu trách nhiệm:
 - Streamable HTTP MCP endpoint tại `/p/{project_id}/mcp`
 - PAT auth, project binding, origin/payload checks, rate limiting, idempotency
-- dispatch 11 public `viberecall_*` tools
+- dispatch current public `viberecall_*` tool surface (25 tools hiện tại), với `tools/list` và `tools/call` được lọc theo token scope
 - normalize tool outputs theo output envelope ổn định
 
 ### D. Worker runtime
