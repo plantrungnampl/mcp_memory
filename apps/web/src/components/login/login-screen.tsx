@@ -43,7 +43,7 @@ export function LoginScreen({ appUrl, hasSupabase }: LoginScreenProps) {
               <p>- Secure auth with Supabase callback</p>
             </div>
             <div className="mt-auto border-t border-[#1D1730] pt-4 text-xs text-[#6F6790]">
-              Use your GitHub account or request a magic link.
+              Use your Google account or request a magic link.
             </div>
           </aside>
 
@@ -57,7 +57,7 @@ export function LoginScreen({ appUrl, hasSupabase }: LoginScreenProps) {
             <p className="text-[11px] font-bold tracking-[0.16em] text-[#A855F7]">AUTHENTICATION</p>
             <h2 className="mt-1 text-4xl font-bold leading-tight text-[#F1ECFF]">Sign in</h2>
             <p className="mt-2 text-sm text-[#8B86AF]">
-              Continue with GitHub or use an email magic link.
+              Continue with Google or use an email magic link.
             </p>
 
             <div className="mt-5">
