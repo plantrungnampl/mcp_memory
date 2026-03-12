@@ -1,12 +1,30 @@
 import type { Metadata } from "next";
 
 import { Providers } from "@/components/providers";
+import {
+  BRAND_NAME,
+  CONTROL_PLANE_DESCRIPTION,
+  getMetadataBase,
+} from "@/lib/seo";
 
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "VibeRecall Control Plane",
-  description: "Native MCP memory infrastructure for coding agents.",
+  metadataBase: getMetadataBase(),
+  title: {
+    default: BRAND_NAME,
+    template: `%s | ${BRAND_NAME}`,
+  },
+  description: CONTROL_PLANE_DESCRIPTION,
+  applicationName: BRAND_NAME,
+  referrer: "origin-when-cross-origin",
+  creator: BRAND_NAME,
+  publisher: BRAND_NAME,
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
 };
 
 export default function RootLayout({

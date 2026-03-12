@@ -39,6 +39,9 @@
 - On 2026-03-12, the pre-deploy hardening pass for `Vercel web + DigitalOcean API` locked down remote git indexing by default, removed `memory:write` scope escalation into indexing/deletion, and made the web/server env contract explicit again.
 - On 2026-03-12, the web auth UI was narrowed from GitHub OAuth to Google OAuth while keeping the Supabase callback route, proxy/session refresh, and email magic-link path unchanged; external provider enablement now depends on Google + Supabase dashboard config rather than repo code.
 - On 2026-03-12, the web public-env module was corrected to read `NEXT_PUBLIC_*` values through direct `process.env` property access before export, because the prior generic `env = process.env` lookup prevented correct client-side inlining and broke Supabase login initialization in both local and hosted builds.
+- On 2026-03-12, the public SEO baseline was added across `apps/web` and `apps/docs`: the web app now uses App Router metadata, `robots.ts`, `sitemap.ts`, OG/Twitter image routes, landing-page JSON-LD, and `noindex` on login/internal control-plane routes; the docs app now uses real-origin env-based canonical config, explicit social assets, and page-level descriptions on the highest-intent docs pages.
+- On 2026-03-12, docs previews were explicitly narrowed to `noindex` surfaces: hosted preview builds should derive origin from `VERCEL_URL`, while only production builds may index and require `DOCUSAURUS_URL`.
+- On 2026-03-12, the landing-page SEO follow-up stayed scope-tight: strengthen `Organization` JSON-LD with the public GitHub repo as `sameAs`, and remove dead footer/legal affordances instead of creating placeholder public pages.
 
 ## State
 - Backend validation for the current entity-resolution/unresolved-mention slice is green.
@@ -51,6 +54,10 @@
 - The current docs content now includes public-safe Codex and Claude Code setup guidance, installation profiles, local workspace bridge guidance, and copy-paste agent rule templates.
 - The current playbooks now enforce stricter agent behavior around project verification, trust-boundary escalation, and canonical-memory mutation.
 - The public landing page now presents VibeRecall as free for everyone at the marketing layer only; internal plan models and backend contracts remain unchanged in this pass.
+- The public web surface now exposes crawl/index primitives (`/robots.txt`, `/sitemap.xml`, OG/Twitter images, JSON-LD) and route-specific metadata suited for a docs-led, product-intent SEO posture.
+- The public docs site no longer falls back to `docs.example.com`; local builds use `http://localhost:3001`, while production requires `DOCUSAURUS_URL` to avoid shipping wrong canonicals.
+- Docs preview builds now emit preview-host canonicals/OG URLs and `noindex, nofollow`, and the docs social card now ships as a raster PNG asset for broader social-card compatibility.
+- The public landing footer now shows only actionable links; placeholder legal/contact/company copy was removed pending real public destinations.
 - The `/projects` UI no longer needs to surface plan tiers directly; usage and created-date presentation are sufficient for the current product posture.
 - The `/projects/[projectId]/tokens` UI no longer needs to surface maintenance operations to normal users; exports, tokens, connection, usage, and logs remain user-facing, while maintenance stays as an internal capability.
 - The `/projects/[projectId]/tokens` hydration mismatch caused by relative `lastUsedAt` text drifting across SSR and client hydration is resolved in the current dev runtime via the new ops-dashboard `generatedAt` snapshot.
@@ -106,11 +113,24 @@
 - Refactored `apps/web/src/lib/env.ts` so the exported `publicEnv` reads `NEXT_PUBLIC_*` values via direct `process.env` access instead of a generic `resolvePublicEnv(process.env)` path that Next.js would not inline reliably in the client bundle.
 - Added `hasSupabase` coverage to `apps/web/src/lib/env.test.ts` to lock the login/env regression path.
 - Verified `pnpm --dir apps/web test:unit`, `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, and `pnpm --dir apps/web build` after the public-env inlining fix.
+- Added shared SEO constants/helpers in `apps/web`, route metadata for `/` and `/login`, `noindex` metadata on `/projects`, App Router `robots.ts` + `sitemap.ts`, dynamic OG/Twitter image routes, and landing-page JSON-LD plus dead-link cleanup.
+- Added docs SEO assets/config updates in `apps/docs`, including `DOCUSAURUS_URL`-driven canonical origin handling, favicon/social-card assets, and descriptions for priority docs pages.
+- Verified `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, `pnpm --dir apps/web build`, and `pnpm --dir apps/docs build` after the SEO baseline patch.
+- Verified via `curl` that `http://localhost:3000/` now renders canonical, OG, Twitter, robots, and JSON-LD tags, `http://localhost:3000/login` renders `noindex`, and `http://localhost:3000/robots.txt` plus `/sitemap.xml` return the expected crawl policy.
+- Verified `apps/docs/build` contains no `docs.example.com` references and that the built docs HTML now emits canonical, description, and social-image tags against the local docs origin.
+- Verified via Next.js MCP `get_errors` on port `3000` that there are no runtime errors in the open browser sessions after the SEO patch.
+- Converted the docs social card from SVG to PNG, updated Docusaurus config to use the raster asset, and added preview-origin + `noIndex` handling in `apps/docs/docusaurus.config.mjs`.
+- Added `sameAs` to the landing-page `Organization` JSON-LD and removed dead footer/legal affordances so the public landing page only surfaces actionable links.
+- Verified `pnpm --dir apps/web build`.
+- Verified `APP_ENV=production DOCUSAURUS_URL=https://docs.viberecall.dev pnpm --dir apps/docs build` yields production canonicals and `sitemap.xml`.
+- Verified `VERCEL_ENV=preview VERCEL_URL=docs-preview.viberecall.dev pnpm --dir apps/docs build` yields preview-host metadata with `noindex, nofollow`.
 
 ## Now
 - Repository state is stable after the pre-deploy hardening pass and full release validation.
 - The current branch is ready for the chosen topology assumptions: `apps/web` on Vercel, backend runtime on a DigitalOcean Droplet, Redis/Celery enabled, and remote git indexing disabled by default.
 - Remaining work after this turn is mostly operational: redeploy the patched web build, confirm Supabase/Google OAuth provider config in the hosted project, provision/confirm production envs, and run deployed smoke/browser QA.
+- Remaining SEO work after this turn is operational/content-focused: bind real production domains, submit sitemaps to Search Console, and decide whether to add more product-intent docs pages before any broader content-marketing expansion.
+- The current code changes for the SEO follow-up are locally verified and ready to be reviewed/staged alongside the earlier SEO baseline files.
 
 ## Next
 - Provision a separate Vercel project for `apps/docs` and bind `docs.<domain>` once a real production domain is chosen.
@@ -124,6 +144,10 @@
 - Review whether the public docs expansion should eventually be mirrored by README shortcuts or separate deploy runbooks, without widening the current docs-only scope retroactively.
 - Watch for any similar hydration reports on other client-rendered time surfaces, but do not widen this closed token-page fix without new runtime evidence.
 - Record deployed validation results here, then only choose the next spec-v3 feature slice after rollout evidence exists.
+- Set `DOCUSAURUS_URL` to the real production docs origin before the public docs deployment so canonical and OG URLs are not left on localhost.
+- Submit the web and docs sitemaps separately in Search Console once the production domains are live.
+- Decide whether the next public SEO/content sprint should add comparison/use-case docs pages or keep the current docs set stable for now.
+- Decide later whether to add real public `about/contact/privacy/terms` pages or keep the landing intentionally minimal.
 
 ## Open questions
 - UNCONFIRMED: which real production domains will back `app.<domain>`, `docs.<domain>`, and `api.<domain>` for the public rollout.

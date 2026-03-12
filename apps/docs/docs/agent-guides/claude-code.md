@@ -1,5 +1,6 @@
 ---
 title: Claude Code
+description: Configure Claude Code as a remote HTTP-first VibeRecall client without depending on optional prompt or resource surfaces.
 sidebar_position: 3
 ---
 

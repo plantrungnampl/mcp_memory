@@ -1,6 +1,7 @@
 ---
 id: intro
 title: VibeRecall Docs
+description: Public operator documentation for connecting coding agents to the VibeRecall MCP memory platform.
 sidebar_position: 1
 slug: /
 ---

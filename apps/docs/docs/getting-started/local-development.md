@@ -1,5 +1,6 @@
 ---
 title: Local Development
+description: Run the VibeRecall control plane, docs site, and MCP API locally with predictable ports and smoke-test flow.
 sidebar_position: 2
 ---
 

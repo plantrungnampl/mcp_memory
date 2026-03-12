@@ -1,5 +1,6 @@
 ---
 title: MCP Tool Surface
+description: The current 25-tool public VibeRecall MCP surface, grouped by practical workflow and privilege level.
 sidebar_position: 2
 ---
 

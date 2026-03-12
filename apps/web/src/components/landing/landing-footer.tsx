@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { Brain, Github, Mail, Twitter } from "lucide-react";
+import { Brain, Github } from "lucide-react";
 
+import { GITHUB_REPO_URL } from "@/lib/seo";
 import { cn } from "@/lib/utils";
 
 import { footerColumns } from "./landing-data";
@@ -30,15 +31,19 @@ export function LandingFooter() {
               <div key={column.title} className="space-y-3.5">
                 <p className="text-xs font-semibold tracking-[0.04em] text-[#adadb0]">{column.title}</p>
                 <div className="space-y-3.5">
-                  {column.links.map((item) => (
-                    <Link
-                      key={`${column.title}-${item}`}
-                      href="#"
-                      className={cn("block text-[13px] text-[#6b6b70] transition-colors hover:text-[#adadb0]", styles.footerLink)}
-                    >
-                      {item}
-                    </Link>
-                  ))}
+                  {column.links.map((item) =>
+                    item.href ? (
+                      <Link
+                        key={`${column.title}-${item.label}`}
+                        href={item.href}
+                        className={cn("block text-[13px] text-[#6b6b70] transition-colors hover:text-[#adadb0]", styles.footerLink)}
+                        target={item.href.startsWith("http") ? "_blank" : undefined}
+                        rel={item.href.startsWith("http") ? "noreferrer" : undefined}
+                      >
+                        {item.label}
+                      </Link>
+                    ) : null
+                  )}
                 </div>
               </div>
             ))}
@@ -50,14 +55,14 @@ export function LandingFooter() {
         <div className="flex flex-col items-start justify-between gap-5 md:flex-row md:items-center">
           <p className="text-xs text-[#4a4a4e]">© 2026 VibeRecall. All rights reserved.</p>
           <div className="flex items-center gap-4 text-[#6b6b70]">
-            <Link href="#" aria-label="GitHub" className="transition-colors hover:text-[#adadb0]">
+            <Link
+              href={GITHUB_REPO_URL}
+              aria-label="GitHub"
+              className="transition-colors hover:text-[#adadb0]"
+              target="_blank"
+              rel="noreferrer"
+            >
               <Github className="size-[18px]" />
-            </Link>
-            <Link href="#" aria-label="Twitter" className="transition-colors hover:text-[#adadb0]">
-              <Twitter className="size-[18px]" />
-            </Link>
-            <Link href="#" aria-label="Email" className="transition-colors hover:text-[#adadb0]">
-              <Mail className="size-[18px]" />
             </Link>
           </div>
         </div>

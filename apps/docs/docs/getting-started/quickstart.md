@@ -1,5 +1,6 @@
 ---
 title: Quickstart
+description: Connect a coding agent to VibeRecall, verify MCP transport, save one memory, and retrieve it again.
 sidebar_position: 1
 ---
 

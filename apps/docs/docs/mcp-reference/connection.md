@@ -1,5 +1,6 @@
 ---
 title: Connection
+description: Endpoint, auth, and transport rules for connecting project-scoped MCP clients to VibeRecall.
 sidebar_position: 1
 ---
 

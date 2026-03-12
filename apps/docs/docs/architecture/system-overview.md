@@ -1,5 +1,6 @@
 ---
 title: System Overview
+description: Understand how the VibeRecall control plane, project-scoped MCP runtime, Postgres, and background systems fit together.
 sidebar_position: 1
 ---
 

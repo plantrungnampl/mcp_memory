@@ -1,5 +1,6 @@
 ---
 title: Codex
+description: Recommended VibeRecall setup for Codex using a hosted HTTP MCP server, bearer token, and small tool allowlist.
 sidebar_position: 2
 ---
 

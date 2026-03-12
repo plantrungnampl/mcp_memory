@@ -4,7 +4,7 @@ status: normative
 version: 3.0
 ---
 # 12 — Deployment and Operability
-
+domain: app.viberecall.dev
 ## 1. Deploy units
 Recommended initial units:
 - web control plane

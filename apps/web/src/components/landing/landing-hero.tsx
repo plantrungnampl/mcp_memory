@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpen, Github } from "lucide-react";
+import { ArrowRight, BookOpen } from "lucide-react";
 
 import { publicEnv } from "@/lib/env";
 import { cn } from "@/lib/utils";
@@ -19,17 +19,14 @@ export function LandingHero() {
         </div>
 
         <div className="flex flex-col items-center gap-3">
-          <h1 className={cn("text-center text-5xl leading-[1.06] tracking-[-0.02em] text-white md:text-7xl", styles.fontDisplay)}>
-            Never Forget a Single
-          </h1>
           <h1
             className={cn(
-              "text-center text-5xl leading-[1.06] tracking-[-0.02em] md:text-7xl",
+              "text-center text-5xl leading-[1.06] tracking-[-0.02em] text-white md:text-7xl",
               styles.fontDisplay,
-              styles.purpleGradientText,
             )}
           >
-            Line of Code Again
+            Never Forget a Single{" "}
+            <span className={styles.purpleGradientText}>Line of Code Again</span>
           </h1>
         </div>
 
@@ -43,8 +40,8 @@ export function LandingHero() {
             href="/projects"
             className="inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-br from-[#7a2dbe] to-[#9333ea] px-8 py-4 text-base font-semibold text-white shadow-[0_12px_28px_-16px_rgba(122,45,190,1)] transition-opacity hover:opacity-95"
           >
-            <Github className="size-5" />
-            Get Started with GitHub
+            <ArrowRight className="size-5" />
+            Get Started Free
           </Link>
           <Link
             href={publicEnv.docsUrl}

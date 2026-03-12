@@ -1,5 +1,6 @@
 ---
 title: Common Failures
+description: Diagnose common VibeRecall operator failures around MCP sessions, auth, routing, and local startup.
 sidebar_position: 1
 ---
 

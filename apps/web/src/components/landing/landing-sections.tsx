@@ -14,6 +14,7 @@ import {
   Wind,
 } from "lucide-react";
 
+import { DOCS_QUICKSTART_PATH, getDocsUrl } from "@/lib/seo";
 import { cn } from "@/lib/utils";
 
 import { KnowledgeGraphPanel } from "./knowledge-graph-panel";
@@ -237,10 +238,10 @@ export function LandingSections() {
               Get Started
             </Link>
             <Link
-              href="#"
+              href={getDocsUrl(DOCS_QUICKSTART_PATH)}
               className="inline-flex items-center rounded-xl border border-[#2a2a2e] px-8 py-4 text-base font-medium text-[#adadb0] transition-colors hover:border-[#3a3a3f] hover:text-white"
             >
-              Talk to Engineering
+              Read Quickstart
             </Link>
           </div>
 

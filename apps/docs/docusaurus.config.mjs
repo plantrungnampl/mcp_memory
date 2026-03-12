@@ -1,10 +1,23 @@
 /** @type {import('@docusaurus/types').Config} */
+const docsOrigin = process.env.DOCUSAURUS_URL?.trim();
+const vercelUrl = process.env.VERCEL_URL?.trim();
+const previewOrigin = vercelUrl ? `https://${vercelUrl}` : undefined;
+const resolvedDocsOrigin = docsOrigin || previewOrigin || "http://localhost:3001";
+const isProductionEnv =
+  (process.env.APP_ENV ?? "").trim().toLowerCase() === "production" ||
+  (process.env.VERCEL_ENV ?? "").trim().toLowerCase() === "production";
+
+if (isProductionEnv && !docsOrigin) {
+  throw new Error("Missing DOCUSAURUS_URL in production.");
+}
+
 const config = {
   title: "VibeRecall Docs",
   tagline: "Documentation for the VibeRecall MCP memory platform.",
-  favicon: "data:,",
-  url: process.env.DOCUSAURUS_URL ?? "https://docs.example.com",
+  favicon: "img/favicon.svg",
+  url: resolvedDocsOrigin,
   baseUrl: "/",
+  noIndex: !isProductionEnv,
   onBrokenLinks: "throw",
   markdown: {
     hooks: {
@@ -32,6 +45,7 @@ const config = {
     ],
   ],
   themeConfig: {
+    image: "img/social-card.png",
     navbar: {
       title: "VibeRecall Docs",
       items: [

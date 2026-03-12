@@ -1,4 +1,9 @@
 import { publicEnv } from "@/lib/env";
+import {
+  DOCS_QUICKSTART_PATH,
+  GITHUB_REPO_URL,
+  getDocsUrl,
+} from "@/lib/seo";
 
 export type NavItem = {
   label: string;
@@ -37,7 +42,10 @@ export type FaqItem = {
 
 export type FooterLinkColumn = {
   title: string;
-  links: string[];
+  links: Array<{
+    label: string;
+    href?: string;
+  }>;
 };
 
 export const navItems: NavItem[] = [
@@ -150,14 +158,15 @@ export const faqItems: FaqItem[] = [
 export const footerColumns: FooterLinkColumn[] = [
   {
     title: "Product",
-    links: ["Features", "How It Works", "Documentation", "Changelog"],
+    links: [
+      { label: "Features", href: "/#features" },
+      { label: "How It Works", href: "/#how-it-works" },
+      { label: "Documentation", href: publicEnv.docsUrl },
+      { label: "Quickstart", href: getDocsUrl(DOCS_QUICKSTART_PATH) },
+    ],
   },
   {
     title: "Company",
-    links: ["About", "Blog", "Contact"],
-  },
-  {
-    title: "Legal",
-    links: ["Privacy Policy", "Terms of Service"],
+    links: [{ label: "GitHub", href: GITHUB_REPO_URL }],
   },
 ];
