@@ -124,13 +124,16 @@
 - Verified `pnpm --dir apps/web build`.
 - Verified `APP_ENV=production DOCUSAURUS_URL=https://docs.viberecall.dev pnpm --dir apps/docs build` yields production canonicals and `sitemap.xml`.
 - Verified `VERCEL_ENV=preview VERCEL_URL=docs-preview.viberecall.dev pnpm --dir apps/docs build` yields preview-host metadata with `noindex, nofollow`.
+- Replaced the web favicon with the square VibeRecall brain mark by adding `apps/web/src/app/icon.svg` and regenerating `apps/web/src/app/favicon.ico`.
+- Replaced the docs favicon asset in `apps/docs/static/img/favicon.svg` so docs and web now use the same square VibeRecall mark.
+- Verified `pnpm --dir apps/web build` and `pnpm --dir apps/docs build` after the favicon swap.
 
 ## Now
 - Repository state is stable after the pre-deploy hardening pass and full release validation.
 - The current branch is ready for the chosen topology assumptions: `apps/web` on Vercel, backend runtime on a DigitalOcean Droplet, Redis/Celery enabled, and remote git indexing disabled by default.
 - Remaining work after this turn is mostly operational: redeploy the patched web build, confirm Supabase/Google OAuth provider config in the hosted project, provision/confirm production envs, and run deployed smoke/browser QA.
 - Remaining SEO work after this turn is operational/content-focused: bind real production domains, submit sitemaps to Search Console, and decide whether to add more product-intent docs pages before any broader content-marketing expansion.
-- The current code changes for the SEO follow-up are locally verified and ready to be reviewed/staged alongside the earlier SEO baseline files.
+- The current code changes for the SEO follow-up and favicon alignment are locally verified and ready to be reviewed/staged alongside the earlier SEO baseline files.
 
 ## Next
 - Provision a separate Vercel project for `apps/docs` and bind `docs.<domain>` once a real production domain is chosen.
@@ -148,6 +151,7 @@
 - Submit the web and docs sitemaps separately in Search Console once the production domains are live.
 - Decide whether the next public SEO/content sprint should add comparison/use-case docs pages or keep the current docs set stable for now.
 - Decide later whether to add real public `about/contact/privacy/terms` pages or keep the landing intentionally minimal.
+- Redeploy Vercel web/docs and verify the new favicon after a hard refresh, since browser favicon caching is often sticky.
 
 ## Open questions
 - UNCONFIRMED: which real production domains will back `app.<domain>`, `docs.<domain>`, and `api.<domain>` for the public rollout.
