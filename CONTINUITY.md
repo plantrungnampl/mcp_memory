@@ -38,6 +38,7 @@
 - On 2026-03-12, the project ops dashboard payload gained a `generatedAt` snapshot so the `/projects/[projectId]/tokens` page can render relative token usage times against a stable server timestamp during SSR and hydration instead of calling `Date.now()` in the client component render path.
 - On 2026-03-12, the pre-deploy hardening pass for `Vercel web + DigitalOcean API` locked down remote git indexing by default, removed `memory:write` scope escalation into indexing/deletion, and made the web/server env contract explicit again.
 - On 2026-03-12, the web auth UI was narrowed from GitHub OAuth to Google OAuth while keeping the Supabase callback route, proxy/session refresh, and email magic-link path unchanged; external provider enablement now depends on Google + Supabase dashboard config rather than repo code.
+- On 2026-03-12, the web public-env module was corrected to read `NEXT_PUBLIC_*` values through direct `process.env` property access before export, because the prior generic `env = process.env` lookup prevented correct client-side inlining and broke Supabase login initialization in both local and hosted builds.
 
 ## State
 - Backend validation for the current entity-resolution/unresolved-mention slice is green.
@@ -58,6 +59,7 @@
 - The current deploy contract is hardened for `app` on Vercel and `api` on DigitalOcean: web-side production envs fail fast on real deploy signals, `/api/health` probes the backend and a signed control-plane read, and backend `/healthz` now includes Redis/Celery dependency state when those backends are enabled.
 - Public remote git indexing is disabled by default via `INDEX_REMOTE_GIT_ENABLED=false`; legacy git-index tests now opt in explicitly.
 - The `/login` auth surface now presents Google OAuth plus email magic link; GitHub login is no longer wired in the current web code, but successful Google sign-in still depends on Supabase Auth provider configuration outside this repo.
+- The `/login` auth surface no longer depends on a broken dynamic public-env lookup: local and production client bundles can now inline `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` correctly, matching the server-side login render path.
 
 ## Done
 - Refreshed `README.md`, `apps/mcp-api/README.md`, and `viberecall_spec_md/` contract docs to match the current 25-tool MCP runtime.
@@ -101,16 +103,20 @@
 - Replaced GitHub OAuth wiring in the login client with Google OAuth, added a local Google icon, and updated login-screen auth copy to reference Google instead of GitHub while leaving the magic-link flow unchanged.
 - Verified `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, and `pnpm --dir apps/web build` after the auth-provider swap.
 - Verified in a browser session on `http://localhost:3000/login` that the page renders `Continue with Google`, the login copy references Google, and no `Continue with GitHub` auth copy remains.
+- Refactored `apps/web/src/lib/env.ts` so the exported `publicEnv` reads `NEXT_PUBLIC_*` values via direct `process.env` access instead of a generic `resolvePublicEnv(process.env)` path that Next.js would not inline reliably in the client bundle.
+- Added `hasSupabase` coverage to `apps/web/src/lib/env.test.ts` to lock the login/env regression path.
+- Verified `pnpm --dir apps/web test:unit`, `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, and `pnpm --dir apps/web build` after the public-env inlining fix.
 
 ## Now
 - Repository state is stable after the pre-deploy hardening pass and full release validation.
 - The current branch is ready for the chosen topology assumptions: `apps/web` on Vercel, backend runtime on a DigitalOcean Droplet, Redis/Celery enabled, and remote git indexing disabled by default.
-- Remaining work after this turn is operational only: confirm Supabase/Google OAuth provider config in the hosted project, provision/confirm production envs, and run deployed smoke/browser QA.
+- Remaining work after this turn is mostly operational: redeploy the patched web build, confirm Supabase/Google OAuth provider config in the hosted project, provision/confirm production envs, and run deployed smoke/browser QA.
 
 ## Next
 - Provision a separate Vercel project for `apps/docs` and bind `docs.<domain>` once a real production domain is chosen.
 - Populate Vercel and Droplet production envs, then launch `ops/docker-compose.digitalocean.yml` behind Caddy.
 - Keep `APP_ENV=production` and `INDEX_REMOTE_GIT_ENABLED=false` explicit in production env configuration.
+- Redeploy `apps/web` anywhere the older broken client bundle was already built, then re-test `/login` before touching Supabase dashboard settings again.
 - Enable the Google auth provider in Supabase, configure Google Cloud OAuth client origins/redirects, and disable GitHub provider after Google sign-in is verified.
 - Run `pnpm smoke:mcp:deployed -- --base-url <deployed_api_base> --project-id <qa_project_id> --token <qa_plaintext_token>` once a real target is available.
 - Run authenticated browser QA for `/projects`, `/projects/[projectId]/tokens`, `/projects/[projectId]/api-logs`, `/projects/[projectId]/usage`, and `/projects/[projectId]/graphs/playground` on the deployed web app.

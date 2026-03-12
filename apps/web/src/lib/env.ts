@@ -7,13 +7,26 @@ type PublicEnv = {
   hasSupabase: boolean;
 };
 
+type PublicEnvSource = Partial<
+  Pick<
+    NodeJS.ProcessEnv,
+    | "APP_ENV"
+    | "VERCEL_ENV"
+    | "NEXT_PUBLIC_APP_URL"
+    | "NEXT_PUBLIC_DOCS_URL"
+    | "NEXT_PUBLIC_MCP_BASE_URL"
+    | "NEXT_PUBLIC_SUPABASE_URL"
+    | "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+  >
+>;
+
 const LOCAL_PUBLIC_DEFAULTS = {
   NEXT_PUBLIC_APP_URL: "http://localhost:3000",
   NEXT_PUBLIC_DOCS_URL: "http://localhost:3001",
   NEXT_PUBLIC_MCP_BASE_URL: "http://localhost:8010",
 } as const;
 
-function isProductionEnv(env: NodeJS.ProcessEnv): boolean {
+function isProductionEnv(env: PublicEnvSource): boolean {
   return (
     (env.APP_ENV ?? "").trim().toLowerCase() === "production" ||
     (env.VERCEL_ENV ?? "").trim().toLowerCase() === "production"
@@ -21,7 +34,7 @@ function isProductionEnv(env: NodeJS.ProcessEnv): boolean {
 }
 
 function readPublicUrl(
-  env: NodeJS.ProcessEnv,
+  env: PublicEnvSource,
   name: keyof typeof LOCAL_PUBLIC_DEFAULTS,
 ): string {
   const value = env[name]?.trim();
@@ -34,7 +47,7 @@ function readPublicUrl(
   return LOCAL_PUBLIC_DEFAULTS[name];
 }
 
-export function resolvePublicEnv(env: NodeJS.ProcessEnv = process.env): PublicEnv {
+export function resolvePublicEnv(env: PublicEnvSource): PublicEnv {
   const appUrl = readPublicUrl(env, "NEXT_PUBLIC_APP_URL");
   const docsUrl = readPublicUrl(env, "NEXT_PUBLIC_DOCS_URL");
   const mcpBaseUrl = readPublicUrl(env, "NEXT_PUBLIC_MCP_BASE_URL");
@@ -51,4 +64,17 @@ export function resolvePublicEnv(env: NodeJS.ProcessEnv = process.env): PublicEn
   };
 }
 
-export const publicEnv = resolvePublicEnv();
+function readProcessPublicEnv(): PublicEnvSource {
+  // Direct NEXT_PUBLIC_* access keeps client-side env values eligible for Next.js build-time inlining.
+  return {
+    APP_ENV: process.env.APP_ENV,
+    VERCEL_ENV: process.env.VERCEL_ENV,
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_DOCS_URL: process.env.NEXT_PUBLIC_DOCS_URL,
+    NEXT_PUBLIC_MCP_BASE_URL: process.env.NEXT_PUBLIC_MCP_BASE_URL,
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  };
+}
+
+export const publicEnv = resolvePublicEnv(readProcessPublicEnv());
