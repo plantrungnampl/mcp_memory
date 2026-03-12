@@ -399,6 +399,7 @@ export type MaintenanceJob = {
 };
 
 export type ProjectOpsDashboardPayload = {
+  generatedAt: string;
   tokens: ProjectToken[];
   connection: McpConnectionInfo | null;
   usageDaily: UsageSummary | null;

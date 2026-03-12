@@ -88,6 +88,27 @@ def test_tools_list_filters_tools_by_token_scope(monkeypatch) -> None:
     assert "viberecall_index_repo" not in tool_names
 
 
+def test_tools_list_does_not_escalate_memory_write_into_delete_or_index(monkeypatch) -> None:
+    episode_store = {}
+    setup_app(monkeypatch, make_token(plan="free", scopes=["memory:write"]), episode_store)
+
+    with TestClient(create_app()) as client:
+        session_id = initialize_session(client, "proj_test")
+        response = client.post(
+            "/p/proj_test/mcp",
+            headers=mcp_headers(session_id),
+            json={"jsonrpc": "2.0", "id": "memory-write-tools", "method": "tools/list", "params": {}},
+        )
+
+    teardown_app()
+    assert response.status_code == 200
+    tool_names = [tool["name"] for tool in parse_mcp_event(response)["result"]["tools"]]
+    assert "viberecall_save_episode" in tool_names
+    assert "viberecall_working_memory_patch" in tool_names
+    assert "viberecall_delete_episode" not in tool_names
+    assert "viberecall_index_repo" not in tool_names
+
+
 def test_tools_list_includes_canonical_entity_search_for_entities_scope(monkeypatch) -> None:
     episode_store = {}
     setup_app(monkeypatch, make_token(plan="free", scopes=["entities:read"]), episode_store)

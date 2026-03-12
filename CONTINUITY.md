@@ -35,6 +35,8 @@
 - On 2026-03-11, the `/projects/[projectId]/tokens` page was narrowed further to end-user actions only: maintenance controls should be hidden from the current user-facing tokens UI while retention/migration/purge capabilities remain implemented behind the existing server and backend layers.
 - On 2026-03-11, project-facing copy actions in the MCP setup and token surfaces were standardized on a shared client-side clipboard helper with a fallback path, so copy buttons do not depend solely on `navigator.clipboard.writeText()`.
 - On 2026-03-11, the project workspace header ID chip was corrected from a decorative server-rendered icon into a real client-side copy control using the shared clipboard helper.
+- On 2026-03-12, the project ops dashboard payload gained a `generatedAt` snapshot so the `/projects/[projectId]/tokens` page can render relative token usage times against a stable server timestamp during SSR and hydration instead of calling `Date.now()` in the client component render path.
+- On 2026-03-12, the pre-deploy hardening pass for `Vercel web + DigitalOcean API` locked down remote git indexing by default, removed `memory:write` scope escalation into indexing/deletion, and made the web/server env contract explicit again.
 
 ## State
 - Backend validation for the current entity-resolution/unresolved-mention slice is green.
@@ -49,8 +51,11 @@
 - The public landing page now presents VibeRecall as free for everyone at the marketing layer only; internal plan models and backend contracts remain unchanged in this pass.
 - The `/projects` UI no longer needs to surface plan tiers directly; usage and created-date presentation are sufficient for the current product posture.
 - The `/projects/[projectId]/tokens` UI no longer needs to surface maintenance operations to normal users; exports, tokens, connection, usage, and logs remain user-facing, while maintenance stays as an internal capability.
+- The `/projects/[projectId]/tokens` hydration mismatch caused by relative `lastUsedAt` text drifting across SSR and client hydration is resolved in the current dev runtime via the new ops-dashboard `generatedAt` snapshot.
 - The MCP setup and token-related copy controls now share one clipboard implementation with a fallback path for stricter browser/security contexts.
 - The workspace header project ID chip is now an actual copy action instead of a static icon.
+- The current deploy contract is hardened for `app` on Vercel and `api` on DigitalOcean: web-side production envs fail fast on real deploy signals, `/api/health` probes the backend and a signed control-plane read, and backend `/healthz` now includes Redis/Celery dependency state when those backends are enabled.
+- Public remote git indexing is disabled by default via `INDEX_REMOTE_GIT_ENABLED=false`; legacy git-index tests now opt in explicitly.
 
 ## Done
 - Refreshed `README.md`, `apps/mcp-api/README.md`, and `viberecall_spec_md/` contract docs to match the current 25-tool MCP runtime.
@@ -80,19 +85,32 @@
 - Verified `pnpm --dir apps/web typecheck` and `pnpm --dir apps/web build` after hiding the user-facing maintenance controls.
 - Verified `pnpm --dir apps/web typecheck` and `pnpm --dir apps/web build` after the clipboard-fallback patch.
 - Verified `pnpm --dir apps/web typecheck` and `pnpm --dir apps/web build` after making the workspace header project ID chip clickable.
+- Added `generatedAt` to the project ops dashboard payload and rewired `TokenDashboardPanel` relative-time rendering to use that server snapshot instead of render-time `Date.now()`.
+- Verified `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, and `pnpm --dir apps/web build` after the token-page hydration fix.
+- Verified via Next.js MCP `get_errors` on port `3000` that the open `/projects/.../tokens` browser session no longer reports the recoverable hydration mismatch.
+- Hardened backend runtime dependency probes to cover Redis KV and Celery broker/result backends, changed backend `/healthz` to return `503` when required dependencies are degraded, and improved export dependency error detail.
+- Removed early commits from export-create helpers, added rollback coverage for export enqueue failure, and stopped control-plane audit/job attribution from writing `user_id` into `token_id`.
+- Added explicit `entities:read` and `graph:read` to default token scopes while removing `memory:write` alias escalation into `index:run` and `delete:write`.
+- Disabled remote git indexing by default with `INDEX_REMOTE_GIT_ENABLED=false`, updated deploy env examples/runbooks, and kept legacy git-index test helpers opt-in only.
+- Refactored `apps/web` env resolution into testable helpers, made `CONTROL_PLANE_API_BASE_URL` mandatory on the server side, and replaced `/api/health` with a real backend + signed control-plane probe.
+- Verified `pnpm --dir apps/web test:unit`.
+- Verified focused backend regressions with `UV_CACHE_DIR=/tmp/uv-cache uv run --project apps/mcp-api pytest -q apps/mcp-api/tests/test_control_plane_api.py apps/mcp-api/tests/test_mcp_transport.py apps/mcp-api/tests/test_runtime_backends.py apps/mcp-api/tests/test_mcp_indexing.py`.
+- Verified the full release gate with `pnpm validate:release` -> `166 passed, 2 skipped` for backend tests after docs/web validation.
 
 ## Now
-- Repository state is stable after the spec closeout, migration-history repair, and hosted-topology docs updates.
-- The current active slice is the user-facing control-plane cleanup pass on `apps/web`, keeping operator-only concepts out of the normal project UI without changing backend capability.
-- Remaining work after this turn is operational only: provision the real docs Vercel project and bind a production `docs.<domain>`.
+- Repository state is stable after the pre-deploy hardening pass and full release validation.
+- The current branch is ready for the chosen topology assumptions: `apps/web` on Vercel, backend runtime on a DigitalOcean Droplet, Redis/Celery enabled, and remote git indexing disabled by default.
+- Remaining work after this turn is operational only: provision/confirm production envs and run deployed smoke/browser QA.
 
 ## Next
 - Provision a separate Vercel project for `apps/docs` and bind `docs.<domain>` once a real production domain is chosen.
 - Populate Vercel and Droplet production envs, then launch `ops/docker-compose.digitalocean.yml` behind Caddy.
+- Keep `APP_ENV=production` and `INDEX_REMOTE_GIT_ENABLED=false` explicit in production env configuration.
 - Run `pnpm smoke:mcp:deployed -- --base-url <deployed_api_base> --project-id <qa_project_id> --token <qa_plaintext_token>` once a real target is available.
 - Run authenticated browser QA for `/projects`, `/projects/[projectId]/tokens`, `/projects/[projectId]/api-logs`, `/projects/[projectId]/usage`, and `/projects/[projectId]/graphs/playground` on the deployed web app.
 - Run deployed browser QA for `https://docs.<your-domain>` and confirm `https://app.<your-domain>/docs` redirects there.
 - Review whether the public docs expansion should eventually be mirrored by README shortcuts or separate deploy runbooks, without widening the current docs-only scope retroactively.
+- Watch for any similar hydration reports on other client-rendered time surfaces, but do not widen this closed token-page fix without new runtime evidence.
 - Record deployed validation results here, then only choose the next spec-v3 feature slice after rollout evidence exists.
 
 ## Open questions

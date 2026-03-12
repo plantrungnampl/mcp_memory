@@ -329,6 +329,7 @@ async def test_code_index_snapshot_persists_text_arrays_for_asyncpg() -> None:
 
 
 def test_normalize_repo_source_rejects_unknown_git_credential_ref(monkeypatch) -> None:
+    monkeypatch.setattr(code_index.settings, "index_remote_git_enabled", True)
     monkeypatch.setattr(code_index.settings, "index_git_credential_refs_json", '{"known":{"allowed_hosts":["github.com"],"token":"secret"}}')
     with pytest.raises(ValueError, match="Unknown git credential_ref"):
         code_index.normalize_repo_source(
@@ -342,6 +343,7 @@ def test_normalize_repo_source_rejects_unknown_git_credential_ref(monkeypatch) -
 
 
 def test_normalize_repo_source_rejects_host_mismatch_for_git_credential_ref(monkeypatch) -> None:
+    monkeypatch.setattr(code_index.settings, "index_remote_git_enabled", True)
     monkeypatch.setattr(code_index.settings, "index_git_credential_refs_json", '{"known":{"allowed_hosts":["github.com"],"token":"secret"}}')
     with pytest.raises(ValueError, match="is not allowed for host"):
         code_index.normalize_repo_source(
@@ -352,6 +354,55 @@ def test_normalize_repo_source_rejects_host_mismatch_for_git_credential_ref(monk
                 "credential_ref": "known",
             }
         )
+
+
+def test_normalize_repo_source_rejects_remote_git_when_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(code_index.settings, "index_remote_git_enabled", False)
+    with pytest.raises(ValueError, match="remote git indexing is disabled"):
+        code_index.normalize_repo_source(
+            {
+                "type": "git",
+                "remote_url": "https://github.com/acme/repo.git",
+                "ref": "main",
+            }
+        )
+
+
+async def test_probe_runtime_dependencies_checks_redis_and_celery(monkeypatch) -> None:
+    class FakeRedisClient:
+        def __init__(self, url: str):
+            self.url = url
+
+        async def ping(self) -> None:
+            if self.url.endswith("/1"):
+                raise RuntimeError("result backend down")
+
+        async def aclose(self) -> None:
+            return None
+
+    async def fake_verify_connectivity() -> None:
+        return None
+
+    monkeypatch.setattr(runtime.settings, "memory_backend", "falkordb")
+    monkeypatch.setattr(runtime.settings, "kv_backend", "redis")
+    monkeypatch.setattr(runtime.settings, "queue_backend", "celery")
+    monkeypatch.setattr(runtime.settings, "redis_url", "redis://redis.internal:6379/0")
+    monkeypatch.setattr(runtime.settings, "celery_broker_url", "redis://redis.internal:6379/0")
+    monkeypatch.setattr(runtime.settings, "celery_result_backend", "redis://redis.internal:6379/1")
+    monkeypatch.setattr(runtime._falkordb_admin, "verify_connectivity", fake_verify_connectivity)
+    monkeypatch.setattr(runtime.redis_async, "from_url", lambda url, decode_responses=True: FakeRedisClient(url))
+
+    await runtime.reset_runtime_state()
+    dependency_state = await runtime.probe_runtime_dependencies()
+
+    assert dependency_state["status"] == "degraded"
+    assert dependency_state["checks"]["falkordb"]["status"] == "ok"
+    assert dependency_state["checks"]["redis"]["status"] == "ok"
+    assert dependency_state["checks"]["celery_broker"]["status"] == "ok"
+    assert dependency_state["checks"]["celery_result_backend"]["status"] == "error"
+    assert dependency_state["runtime"]["redis_target"] == "redis.internal:6379"
+    assert dependency_state["runtime"]["celery_broker_target"] == "redis.internal:6379"
+    assert dependency_state["runtime"]["celery_result_backend_target"] == "redis.internal:6379"
 
 
 async def test_run_index_job_wrapper_passes_current_code_index_helpers(monkeypatch) -> None:

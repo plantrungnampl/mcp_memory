@@ -25,6 +25,9 @@ class DummySession:
     async def commit(self) -> None:
         return None
 
+    async def rollback(self) -> None:
+        return None
+
 
 async def override_session() -> AsyncIterator[DummySession]:
     yield DummySession()
@@ -421,7 +424,7 @@ def test_healthz_returns_dependency_probe_payload(monkeypatch) -> None:
     with TestClient(app) as client:
         response = client.get("/healthz")
 
-    assert response.status_code == 200
+    assert response.status_code == 503
     body = response.json()
     assert body["status"] == "degraded"
     assert body["service"] == "viberecall-mcp"
@@ -479,6 +482,8 @@ def test_default_scopes_for_all_plans_are_full_access() -> None:
         "memory:read",
         "memory:write",
         "facts:write",
+        "entities:read",
+        "graph:read",
         "index:read",
         "index:run",
         "ops:read",
@@ -1919,6 +1924,8 @@ def test_stripe_webhook_duplicate_payload_mismatch_returns_conflict(monkeypatch)
 
 
 def test_create_export_enqueues_job_and_returns_record(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
     async def fake_ensure_project_access(_session, **_kwargs):
         return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
 
@@ -1963,6 +1970,7 @@ def test_create_export_enqueues_job_and_returns_record(monkeypatch) -> None:
 
     class FakeQueue:
         async def enqueue_export(self, **_kwargs):
+            captured.update(_kwargs)
             return "job_export_1"
 
     app = create_app()
@@ -1992,6 +2000,7 @@ def test_create_export_enqueues_job_and_returns_record(monkeypatch) -> None:
     body = response.json()
     assert body["export"]["export_id"] == "exp_1"
     assert body["export"]["job_id"] == "job_export_1"
+    assert captured["token_id"] is None
 
 
 def test_create_export_returns_503_when_dependencies_unavailable(monkeypatch) -> None:
@@ -2051,6 +2060,78 @@ def test_create_export_returns_503_when_dependencies_unavailable(monkeypatch) ->
     assert "Export dependency check failed" in response.json()["detail"]
     assert calls["create_export"] == 0
     assert calls["enqueue_export"] == 0
+
+
+def test_create_export_rolls_back_when_enqueue_fails(monkeypatch) -> None:
+    events: list[str] = []
+
+    class TrackingSession:
+        async def commit(self) -> None:
+            events.append("commit")
+
+        async def rollback(self) -> None:
+            events.append("rollback")
+
+    async def override_tracking_session() -> AsyncIterator[TrackingSession]:
+        yield TrackingSession()
+
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_create_export(_session, **_kwargs):
+        events.append("create_export")
+        return {
+            "export_id": "exp_1",
+            "project_id": "proj_1",
+            "status": "pending",
+            "format": "json_v1",
+            "object_url": None,
+            "expires_at": None,
+            "error": None,
+            "requested_by": "user_123",
+            "requested_at": "2026-02-28T10:00:00Z",
+            "completed_at": None,
+            "job_id": None,
+        }
+
+    async def fake_set_export_job_id(_session, **_kwargs):
+        events.append("set_job_id")
+
+    async def fake_audit(*_args, **_kwargs):
+        events.append("audit")
+
+    async def fake_ensure_export_dependencies_ready() -> None:
+        return None
+
+    class FailingQueue:
+        async def enqueue_export(self, **_kwargs):
+            events.append("enqueue_export")
+            raise RuntimeError("queue unavailable")
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_tracking_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "create_export", fake_create_export)
+    monkeypatch.setattr(control_plane, "set_export_job_id", fake_set_export_job_id)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+    monkeypatch.setattr(
+        control_plane,
+        "_ensure_export_dependencies_ready",
+        fake_ensure_export_dependencies_ready,
+    )
+    monkeypatch.setattr(control_plane, "get_task_queue", lambda: FailingQueue())
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/api/control-plane/projects/proj_1/exports",
+            headers=auth_headers() | {"Idempotency-Key": "idem-export-fail"},
+            json={"format": "json_v1"},
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 500
+    assert events == ["create_export", "enqueue_export", "rollback"]
 
 
 def test_get_export_refreshes_signed_url_when_expired(monkeypatch) -> None:

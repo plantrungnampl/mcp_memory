@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+test("resolvePublicEnv uses local defaults outside production", async () => {
+  const { resolvePublicEnv } = await import("./env");
+
+  const resolved = resolvePublicEnv({
+    NODE_ENV: "development",
+  });
+
+  assert.equal(resolved.appUrl, "http://localhost:3000");
+  assert.equal(resolved.docsUrl, "http://localhost:3001");
+  assert.equal(resolved.mcpBaseUrl, "http://localhost:8010");
+});
+
+test("resolvePublicEnv throws when required public urls are missing in production", async () => {
+  const { resolvePublicEnv } = await import("./env");
+
+  assert.throws(
+    () =>
+      resolvePublicEnv({
+        APP_ENV: "production",
+        NODE_ENV: "test",
+      } as NodeJS.ProcessEnv),
+    /Missing required public environment variable: NEXT_PUBLIC_APP_URL/,
+  );
+});
+
+test("resolveServerEnv requires explicit control plane api base url", async () => {
+  process.env.CONTROL_PLANE_API_BASE_URL = "https://api.example.com";
+  process.env.CONTROL_PLANE_INTERNAL_SECRET = "test-secret";
+  const { resolveServerEnv } = await import("./server-env");
+
+  assert.throws(
+    () =>
+      resolveServerEnv({
+        NODE_ENV: "test",
+        CONTROL_PLANE_INTERNAL_SECRET: "test-secret",
+      } as NodeJS.ProcessEnv),
+    /Missing required server environment variable: CONTROL_PLANE_API_BASE_URL/,
+  );
+});

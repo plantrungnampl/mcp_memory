@@ -6,6 +6,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 import structlog
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, status
 from fastapi import Response
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from viberecall_mcp.auth import authenticate_bearer_token
@@ -147,14 +148,22 @@ def create_app() -> FastAPI:
         }
 
     @application.get("/healthz")
-    async def healthz() -> dict:
+    async def healthz() -> Response:
         dependency_state = await probe_runtime_dependencies()
-        return {
-            "status": dependency_state["status"],
-            "service": "viberecall-mcp",
-            "runtime": dependency_state["runtime"],
-            "checks": dependency_state["checks"],
-        }
+        status_code = (
+            status.HTTP_200_OK
+            if dependency_state["status"] == "ok"
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        return JSONResponse(
+            content={
+                "status": dependency_state["status"],
+                "service": "viberecall-mcp",
+                "runtime": dependency_state["runtime"],
+                "checks": dependency_state["checks"],
+            },
+            status_code=status_code,
+        )
 
     @application.get("/metrics")
     async def metrics() -> Response:

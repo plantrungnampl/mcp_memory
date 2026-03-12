@@ -72,7 +72,7 @@ const FALLBACK_SERIES = [45, 62, 38, 85, 55, 72, 48, 92, 110, 78, 95, 120, 68, 1
 const OPS_DASHBOARD_STALE_TIME_MS = 15_000;
 const OPS_DASHBOARD_POLL_INTERVAL_MS = 5_000;
 
-function formatRelativeTime(value: string | null): string {
+function formatRelativeTime(value: string | null, nowMs: number): string {
   if (!value) {
     return "never";
   }
@@ -80,7 +80,7 @@ function formatRelativeTime(value: string | null): string {
   if (Number.isNaN(timestamp)) {
     return value;
   }
-  const diffSeconds = Math.floor((Date.now() - timestamp) / 1000);
+  const diffSeconds = Math.floor((nowMs - timestamp) / 1000);
   if (diffSeconds < 60) {
     return "just now";
   }
@@ -283,6 +283,7 @@ export function TokenDashboardPanel({
   const overviewRow = dashboardData.overviewRow;
   const logs = dashboardData.logs;
   const exports = dashboardData.exports;
+  const relativeTimeNowMs = Date.parse(dashboardData.generatedAt);
   const opsDashboardError = opsDashboardQuery.isError
     ? normalizeQueryError(opsDashboardQuery.error)
     : null;
@@ -414,7 +415,9 @@ export function TokenDashboardPanel({
       iconClassName: "text-[var(--vr-warning)]",
       label: "Active Tokens",
       value: activeTokensCount.toLocaleString(),
-      note: activeToken ? `Last used ${formatRelativeTime(activeToken.lastUsedAt)}` : "Mint your first token",
+      note: activeToken
+        ? `Last used ${formatRelativeTime(activeToken.lastUsedAt, relativeTimeNowMs)}`
+        : "Mint your first token",
       noteClassName: "text-[var(--vr-text-dim)]",
       monoValue: true,
     },
@@ -590,7 +593,7 @@ export function TokenDashboardPanel({
                       <p className="font-mono text-[10px] text-[var(--vr-text-dim)]">{token.tokenId}</p>
                     </td>
                     <td className="px-4 py-3 align-middle text-xs text-[var(--vr-text-muted)]">
-                      {formatRelativeTime(token.lastUsedAt)}
+                      {formatRelativeTime(token.lastUsedAt, relativeTimeNowMs)}
                     </td>
                     <td className="w-[120px] px-4 py-3 align-middle">
                       <span

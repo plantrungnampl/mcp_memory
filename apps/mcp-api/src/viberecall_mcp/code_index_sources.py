@@ -43,6 +43,8 @@ def normalize_repo_source(repo_source: dict[str, Any]) -> dict[str, Any]:
 
     source_type = str(repo_source.get("type") or "").strip()
     if source_type == "git":
+        if not settings.index_remote_git_enabled:
+            raise ValueError("remote git indexing is disabled; use repo_source.type='workspace_bundle'")
         remote_url = str(repo_source.get("remote_url") or "").strip()
         ref = str(repo_source.get("ref") or "").strip()
         credential_ref = str(repo_source.get("credential_ref") or "").strip() or None

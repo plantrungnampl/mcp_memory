@@ -2927,6 +2927,7 @@ def teardown_app() -> None:
 
 def seed_repo_index(monkeypatch, tmp_path: Path, *, project_id: str, index_store: dict) -> Path:
     monkeypatch.setattr(code_index.settings, "index_repo_allowed_roots", str(tmp_path))
+    monkeypatch.setattr(code_index.settings, "index_remote_git_enabled", True)
     repo_dir = tmp_path / f"{project_id}-repo"
     repo_dir.mkdir(parents=True, exist_ok=True)
     (repo_dir / "api.ts").write_text(

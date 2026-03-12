@@ -16,6 +16,7 @@ export async function getProjectOpsDashboard(
   user: ControlPlaneUser,
   projectId: string,
 ): Promise<ProjectOpsDashboardPayload> {
+  const generatedAt = new Date().toISOString();
   const [tokens, connection, usageDaily, usageMonthly, exports] = await Promise.all([
     getProjectTokens(user, projectId),
     getConnection(user, projectId),
@@ -38,6 +39,7 @@ export async function getProjectOpsDashboard(
       : null;
 
   return {
+    generatedAt,
     tokens,
     connection,
     usageDaily,

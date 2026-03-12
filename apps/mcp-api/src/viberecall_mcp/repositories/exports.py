@@ -34,7 +34,6 @@ async def create_export(
         },
     )
     row = result.mappings().first()
-    await session.commit()
     return dict(row) if row else {}
 
 
@@ -107,7 +106,6 @@ async def set_export_job_id(
             "job_id": job_id,
         },
     )
-    await session.commit()
 
 
 async def mark_export_processing(

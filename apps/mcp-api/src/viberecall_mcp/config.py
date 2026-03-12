@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     inline_migration_db_size_threshold_bytes: int = 21_474_836_480
     index_repo_allowed_roots: str = ""
     index_bundle_max_bytes: int = 52_428_800
+    index_remote_git_enabled: bool = False
     index_git_credential_refs_json: str = "{}"
     operation_dispatch_retry_limit: int = 8
     export_storage_mode: Literal["local"] = "local"

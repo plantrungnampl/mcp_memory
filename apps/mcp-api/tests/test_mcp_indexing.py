@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
 from tests.support.mcp_harness import *
+
+
+@pytest.fixture(autouse=True)
+def enable_remote_git_indexing_for_legacy_tests(monkeypatch) -> None:
+    monkeypatch.setattr(code_index.settings, "index_remote_git_enabled", True)
 
 
 def test_free_plan_index_and_context_pack_flow(monkeypatch, tmp_path: Path) -> None:

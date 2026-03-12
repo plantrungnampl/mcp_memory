@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from time import monotonic
 from urllib.parse import urlsplit
 
+from redis import asyncio as redis_async
+
 from viberecall_mcp.config import get_settings
 from viberecall_mcp.graphiti_upstream_bridge import UpstreamGraphitiBridge
 from viberecall_mcp.idempotency import LocalIdempotencyStore
@@ -333,6 +335,43 @@ def _sanitize_falkordb_target(host: str, port: int) -> str:
         return f"{host}:{port}"
 
 
+def _sanitize_redis_url_target(url: str) -> str:
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme == "unix":
+            return parsed.path or "unix-socket"
+        host = parsed.hostname or parsed.path or "unknown"
+        port = parsed.port or 6379
+        return f"{host}:{port}"
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+async def _probe_redis_url(url: str, *, detail_label: str) -> dict[str, str]:
+    split = urlsplit(url)
+    if split.scheme not in {"redis", "rediss", "unix"}:
+        return {
+            "status": "skipped",
+            "detail": f"{detail_label} uses unsupported scheme '{split.scheme or 'unknown'}'.",
+        }
+
+    client = redis_async.from_url(url, decode_responses=True)
+    try:
+        await client.ping()
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "error",
+            "detail": str(exc).strip() or f"{detail_label} connectivity check failed.",
+        }
+    finally:
+        await client.aclose()
+
+    return {
+        "status": "ok",
+        "detail": f"{detail_label} connection is healthy.",
+    }
+
+
 def _dependency_probe_fingerprint() -> tuple[str, ...]:
     return (
         settings.memory_backend,
@@ -342,6 +381,9 @@ def _dependency_probe_fingerprint() -> tuple[str, ...]:
         str(settings.falkordb_port),
         settings.falkordb_username,
         settings.falkordb_password,
+        settings.redis_url,
+        settings.celery_broker_url,
+        settings.celery_result_backend,
     )
 
 
@@ -441,7 +483,19 @@ async def probe_runtime_dependencies() -> dict:
         "falkordb": {
             "status": "skipped",
             "detail": "FalkorDB is not required for local memory backend.",
-        }
+        },
+        "redis": {
+            "status": "skipped",
+            "detail": "Redis KV backend is not required.",
+        },
+        "celery_broker": {
+            "status": "skipped",
+            "detail": "Celery queue backend is not required.",
+        },
+        "celery_result_backend": {
+            "status": "skipped",
+            "detail": "Celery result backend is not required.",
+        },
     }
 
     if memory_backend in {"falkordb", "graphiti"}:
@@ -457,17 +511,36 @@ async def probe_runtime_dependencies() -> dict:
                 "detail": str(exc).strip() or "FalkorDB connectivity check failed.",
             }
 
+    if settings.kv_backend == "redis":
+        checks["redis"] = await _probe_redis_url(
+            settings.redis_url,
+            detail_label="Redis KV backend",
+        )
+
+    if settings.queue_backend == "celery":
+        checks["celery_broker"] = await _probe_redis_url(
+            settings.celery_broker_url,
+            detail_label="Celery broker",
+        )
+        checks["celery_result_backend"] = await _probe_redis_url(
+            settings.celery_result_backend,
+            detail_label="Celery result backend",
+        )
+
     status = "degraded" if any(check["status"] == "error" for check in checks.values()) else "ok"
     return _store_dependency_state(
         {
-        "status": status,
-        "runtime": {
-            "memory_backend": memory_backend,
-            "kv_backend": settings.kv_backend,
-            "queue_backend": settings.queue_backend,
-            "falkordb_target": _sanitize_falkordb_target(settings.falkordb_host, settings.falkordb_port),
-        },
-        "checks": checks,
+            "status": status,
+            "runtime": {
+                "memory_backend": memory_backend,
+                "kv_backend": settings.kv_backend,
+                "queue_backend": settings.queue_backend,
+                "falkordb_target": _sanitize_falkordb_target(settings.falkordb_host, settings.falkordb_port),
+                "redis_target": _sanitize_redis_url_target(settings.redis_url),
+                "celery_broker_target": _sanitize_redis_url_target(settings.celery_broker_url),
+                "celery_result_backend_target": _sanitize_redis_url_target(settings.celery_result_backend),
+            },
+            "checks": checks,
         }
     )
 

@@ -125,9 +125,21 @@ async def _ensure_export_dependencies_ready() -> None:
     if dependency_state["status"] == "ok":
         return
 
-    falkordb_detail = dependency_state.get("checks", {}).get("falkordb", {}).get("detail")
+    failing_check = next(
+        (
+            (name, check)
+            for name, check in (dependency_state.get("checks") or {}).items()
+            if check.get("status") == "error"
+        ),
+        None,
+    )
     backend = dependency_state.get("runtime", {}).get("memory_backend", "unknown")
-    detail_suffix = f": {falkordb_detail}" if falkordb_detail else ""
+    detail = None
+    if failing_check is not None:
+        check_name, check_payload = failing_check
+        check_detail = check_payload.get("detail")
+        detail = check_name if not check_detail else f"{check_name}: {check_detail}"
+    detail_suffix = f": {detail}" if detail else ""
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail=f"Export dependency check failed for memory backend '{backend}'{detail_suffix}",
@@ -216,6 +228,8 @@ def _default_scopes_for_plan(plan: str) -> list[str]:
         "memory:read",
         "memory:write",
         "facts:write",
+        "entities:read",
+        "graph:read",
         "index:read",
         "index:run",
         "ops:read",
@@ -765,6 +779,7 @@ async def _audit_control_plane(
     status_text: str,
     user: AuthenticatedControlPlaneUser,
     project_id: str | None = None,
+    commit: bool = True,
 ) -> None:
     await insert_audit_log(
         session,
@@ -772,7 +787,8 @@ async def _audit_control_plane(
         action=action,
         status=status_text,
         project_id=project_id,
-        token_id=user.user_id,
+        token_id=None,
+        commit=commit,
     )
 
 
@@ -1739,24 +1755,30 @@ async def create_export_route(
     await _ensure_export_dependencies_ready()
 
     export_id = new_id("exp")
-    export_row = await create_export(
-        session,
-        export_id=export_id,
-        project_id=project_id,
-        requested_by=user.user_id,
-        export_format=payload.format,
-    )
-    job_id = await get_task_queue().enqueue_export(
-        export_id=export_id,
-        project_id=project_id,
-        request_id=new_id("req"),
-        token_id=user.user_id,
-    )
-    await set_export_job_id(
-        session,
-        export_id=export_id,
-        job_id=job_id,
-    )
+    try:
+        export_row = await create_export(
+            session,
+            export_id=export_id,
+            project_id=project_id,
+            requested_by=user.user_id,
+            export_format=payload.format,
+        )
+        job_id = await get_task_queue().enqueue_export(
+            export_id=export_id,
+            project_id=project_id,
+            request_id=new_id("req"),
+            token_id=None,
+        )
+        await set_export_job_id(
+            session,
+            export_id=export_id,
+            job_id=job_id,
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
     export_row = await get_export(session, project_id=project_id, export_id=export_id) or export_row
     response = {"export": _serialize_export(export_row)}
     await _persist_idempotent_control_plane_response(
@@ -1890,7 +1912,7 @@ async def run_retention_route(
     job_id = await get_task_queue().enqueue_retention(
         project_id=project_id,
         request_id=new_id("req"),
-        token_id=user.user_id,
+        token_id=None,
     )
     await _audit_control_plane(
         session,
@@ -1937,7 +1959,7 @@ async def purge_project_route(
     job_id = await get_task_queue().enqueue_purge_project(
         project_id=project_id,
         request_id=new_id("req"),
-        token_id=user.user_id,
+        token_id=None,
     )
     response = {
         "job": {
@@ -1996,7 +2018,7 @@ async def migrate_inline_to_object_route(
     job_id = await get_task_queue().enqueue_migrate_inline_to_object(
         project_id=project_id,
         request_id=new_id("req"),
-        token_id=user.user_id,
+        token_id=None,
         force=force,
     )
     response = {
