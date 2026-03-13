@@ -354,9 +354,6 @@ export function ProjectCreatedMcpModal({
               </pre>
             </div>
 
-            <div className="mt-3 rounded-lg border border-[var(--vr-divider)] bg-[var(--vr-bg-card)] px-3 py-2 text-xs leading-6 text-[var(--vr-text-main)]">
-              If your MCP client starts returning <span className="font-mono text-[var(--vr-text-strong)]">404 Session not found</span> after a backend restart or reload, reconnect the client so it can run a fresh initialize handshake.
-            </div>
           </div>
         </div>
 
