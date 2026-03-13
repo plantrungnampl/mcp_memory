@@ -629,6 +629,219 @@ def test_get_context_pack_loads_index_state_once(monkeypatch, tmp_path: Path) ->
     assert payload["result"]["architecture_map"]["summary"]["file_count"] >= 2
 
 
+def test_get_context_pack_returns_memory_only_fallback_without_ready_index(monkeypatch) -> None:
+    episode_store = {}
+    setup_app(monkeypatch, make_token(plan="free"), episode_store)
+
+    async def fake_build_context_pack(*, session, project_id: str, query: str, limit: int) -> dict:
+        _ = (session, project_id, query, limit)
+        return {
+            "status": "EMPTY",
+            "context_mode": "empty",
+            "index_status": "MISSING",
+            "index_hint": None,
+            "query": query,
+            "architecture_overview": None,
+            "architecture_map": {
+                "indexed_at": None,
+                "repo_path": None,
+                "summary": {
+                    "file_count": 0,
+                    "symbol_count": 0,
+                    "entity_count": 0,
+                    "relationship_count": 0,
+                    "chunk_count": 0,
+                },
+                "top_modules": [],
+                "top_files": [],
+            },
+            "relevant_symbols": [],
+            "related_modules": [],
+            "related_files": [],
+            "citations": [],
+        }
+
+    async def fake_list_timeline(session, *, project_id: str, from_time, to_time, limit: int, offset: int) -> list[dict]:
+        _ = (session, project_id, from_time, to_time, limit, offset)
+        return [
+            {
+                "episode_id": "ep_architecture",
+                "reference_time": "2026-03-10T10:00:00Z",
+                "ingested_at": "2026-03-10T10:01:00Z",
+                "summary": "DigitalOcean architecture",
+                "metadata": {"type": "note"},
+                "salience_score": 0.9,
+                "salience_class": "PINNED",
+            }
+        ]
+
+    async def fake_search_canonical_memory(
+        session,
+        *,
+        project_id: str,
+        query: str,
+        filters,
+        sort: str,
+        limit: int,
+        offset: int,
+    ) -> list[dict]:
+        _ = (session, project_id, query, filters, sort, limit, offset)
+        return [
+            {
+                "kind": "fact",
+                "fact": {
+                    "fact_version_id": "factv_architecture",
+                    "fact_group_id": "factgrp_architecture",
+                    "statement": "VibeRecall runs API and worker on one DigitalOcean droplet.",
+                    "valid_at": "2026-03-10T10:00:00Z",
+                },
+                "entities": [{"entity_id": "ent_do", "name": "DigitalOcean", "type": "Vendor"}],
+                "provenance": {},
+                "score": 0.88,
+            }
+        ]
+
+    async def fake_search_canonical_entities(
+        session,
+        *,
+        project_id: str,
+        query: str,
+        entity_kinds,
+        salience_classes,
+        limit: int,
+    ) -> dict:
+        _ = (session, project_id, query, entity_kinds, salience_classes, limit)
+        return {
+            "status": "READY",
+            "query": query,
+            "entities": [{"entity_id": "ent_do", "name": "DigitalOcean", "type": "Vendor"}],
+            "total": 1,
+        }
+
+    monkeypatch.setattr(tool_handlers, "build_context_pack", fake_build_context_pack)
+    monkeypatch.setattr(tool_handlers, "list_timeline_episodes", fake_list_timeline)
+    monkeypatch.setattr(tool_handlers, "search_canonical_memory", fake_search_canonical_memory)
+    monkeypatch.setattr(tool_handlers, "search_canonical_entities", fake_search_canonical_entities)
+
+    with TestClient(create_app()) as client:
+        session_id = initialize_session(client, "proj_test")
+        response = client.post(
+            "/p/proj_test/mcp",
+            headers=mcp_headers(session_id),
+            json={
+                "jsonrpc": "2.0",
+                "id": "context-memory-only",
+                "method": "tools/call",
+                "params": {
+                    "name": "viberecall_get_context_pack",
+                    "arguments": {"query": "DigitalOcean architecture", "limit": 5},
+                },
+            },
+        )
+
+    teardown_app()
+    payload = parse_result(response)
+    assert payload["ok"] is True
+    assert payload["result"]["status"] == "READY"
+    assert payload["result"]["context_mode"] == "memory_only"
+    assert payload["result"]["index_status"] == "MISSING"
+    assert payload["result"]["index_hint"]["tool"] == "viberecall_index_repo"
+    assert payload["result"]["architecture_overview"].startswith("Memory-only context")
+    assert any(item["source_type"] == "canonical_fact" for item in payload["result"]["citations"])
+    assert any(item["source_type"] == "timeline_episode" for item in payload["result"]["citations"])
+
+
+def test_get_context_pack_stays_empty_without_index_or_memory(monkeypatch) -> None:
+    episode_store = {}
+    setup_app(monkeypatch, make_token(plan="free"), episode_store)
+
+    async def fake_build_context_pack(*, session, project_id: str, query: str, limit: int) -> dict:
+        _ = (session, project_id, query, limit)
+        return {
+            "status": "EMPTY",
+            "context_mode": "empty",
+            "index_status": "MISSING",
+            "index_hint": None,
+            "query": query,
+            "architecture_overview": None,
+            "architecture_map": {
+                "indexed_at": None,
+                "repo_path": None,
+                "summary": {
+                    "file_count": 0,
+                    "symbol_count": 0,
+                    "entity_count": 0,
+                    "relationship_count": 0,
+                    "chunk_count": 0,
+                },
+                "top_modules": [],
+                "top_files": [],
+            },
+            "relevant_symbols": [],
+            "related_modules": [],
+            "related_files": [],
+            "citations": [],
+        }
+
+    async def fake_list_timeline(session, *, project_id: str, from_time, to_time, limit: int, offset: int) -> list[dict]:
+        _ = (session, project_id, from_time, to_time, limit, offset)
+        return []
+
+    async def fake_search_canonical_memory(
+        session,
+        *,
+        project_id: str,
+        query: str,
+        filters,
+        sort: str,
+        limit: int,
+        offset: int,
+    ) -> list[dict]:
+        _ = (session, project_id, query, filters, sort, limit, offset)
+        return []
+
+    async def fake_search_canonical_entities(
+        session,
+        *,
+        project_id: str,
+        query: str,
+        entity_kinds,
+        salience_classes,
+        limit: int,
+    ) -> dict:
+        _ = (session, project_id, query, entity_kinds, salience_classes, limit)
+        return {"status": "READY", "query": query, "entities": [], "total": 0}
+
+    monkeypatch.setattr(tool_handlers, "build_context_pack", fake_build_context_pack)
+    monkeypatch.setattr(tool_handlers, "list_timeline_episodes", fake_list_timeline)
+    monkeypatch.setattr(tool_handlers, "search_canonical_memory", fake_search_canonical_memory)
+    monkeypatch.setattr(tool_handlers, "search_canonical_entities", fake_search_canonical_entities)
+
+    with TestClient(create_app()) as client:
+        session_id = initialize_session(client, "proj_test")
+        response = client.post(
+            "/p/proj_test/mcp",
+            headers=mcp_headers(session_id),
+            json={
+                "jsonrpc": "2.0",
+                "id": "context-empty",
+                "method": "tools/call",
+                "params": {
+                    "name": "viberecall_get_context_pack",
+                    "arguments": {"query": "completely unmatched topic", "limit": 5},
+                },
+            },
+        )
+
+    teardown_app()
+    payload = parse_result(response)
+    assert payload["ok"] is True
+    assert payload["result"]["status"] == "EMPTY"
+    assert payload["result"]["context_mode"] == "empty"
+    assert payload["result"]["index_status"] == "MISSING"
+    assert payload["result"]["index_hint"]["tool"] == "viberecall_index_repo"
+
+
 def test_get_context_pack_prefers_high_salience_timeline_matches(monkeypatch) -> None:
     episode_store = {}
     setup_app(monkeypatch, make_token(plan="free"), episode_store)
@@ -702,6 +915,39 @@ def test_get_context_pack_prefers_high_salience_timeline_matches(monkeypatch) ->
     assert payload["ok"] is True
     assert payload["result"]["facts_timeline"][0]["episode_id"] == "ep_pinned_older"
     assert payload["result"]["facts_timeline"][1]["episode_id"] == "ep_warm_newer"
+
+
+def test_get_context_pack_exposes_related_files_and_modules_for_ready_index(monkeypatch, tmp_path: Path) -> None:
+    episode_store = {}
+    project_id = "proj_context_architecture"
+    index_store = setup_app(monkeypatch, make_token(plan="free", project_id=project_id), episode_store)
+    seed_repo_index(monkeypatch, tmp_path, project_id=project_id, index_store=index_store)
+
+    with TestClient(create_app()) as client:
+        session_id = initialize_session(client, project_id)
+        response = client.post(
+            f"/p/{project_id}/mcp",
+            headers=mcp_headers(session_id),
+            json={
+                "jsonrpc": "2.0",
+                "id": "context-architecture",
+                "method": "tools/call",
+                "params": {
+                    "name": "viberecall_get_context_pack",
+                    "arguments": {"query": "worker", "limit": 5},
+                },
+            },
+        )
+
+    teardown_app()
+    payload = parse_result(response)
+    assert payload["ok"] is True
+    assert payload["result"]["status"] == "READY"
+    assert payload["result"]["context_mode"] == "code_augmented"
+    assert payload["result"]["index_status"] == "READY"
+    assert payload["result"]["architecture_overview"]
+    assert isinstance(payload["result"]["related_modules"], list)
+    assert isinstance(payload["result"]["related_files"], list)
 
 
 def test_index_repo_rejects_paths_outside_allowlist(monkeypatch, tmp_path: Path) -> None:

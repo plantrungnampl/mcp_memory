@@ -114,7 +114,10 @@ def _build_context_from_snapshot(run: dict, snapshot: dict, *, query: str, limit
         reverse=True,
     )
     top_chunks = ranked_chunks[: max(limit, 1)]
-    relevant_symbols = [item for item in entity_result.get("entities", []) if item.get("type") == "Symbol"][:limit]
+    relevant_entities = list(entity_result.get("entities") or [])
+    relevant_symbols = [item for item in relevant_entities if item.get("type") == "Symbol"][:limit]
+    related_modules = [item for item in relevant_entities if item.get("type") == "Module"][:limit]
+    related_files = [item for item in relevant_entities if item.get("type") == "File"][:limit]
     citations = [
         {
             "citation_id": str(chunk.get("chunk_id") or ""),
@@ -129,17 +132,48 @@ def _build_context_from_snapshot(run: dict, snapshot: dict, *, query: str, limit
         for chunk in top_chunks
     ]
     architecture = snapshot.get("architecture") or {}
+    summary = snapshot.get("stats") or {}
+    top_modules = list(architecture.get("top_modules") or [])
+    top_files = list(architecture.get("top_files") or [])
+    module_names = ", ".join(str(item.get("module") or "") for item in top_modules[:3] if item.get("module"))
+    file_names = ", ".join(str(item.get("file_path") or "") for item in top_files[:3] if item.get("file_path"))
+    related_module_names = ", ".join(str(item.get("name") or "") for item in related_modules[:3] if item.get("name"))
+    related_file_names = ", ".join(
+        str(item.get("file_path") or item.get("name") or "") for item in related_files[:3] if item.get("name")
+    )
+    overview_parts = [
+        (
+            f"Snapshot covers {int(summary.get('file_count') or 0)} files, "
+            f"{int(summary.get('symbol_count') or 0)} symbols, "
+            f"{int(summary.get('entity_count') or 0)} entities, and "
+            f"{int(summary.get('relationship_count') or 0)} relationships."
+        )
+    ]
+    if module_names:
+        overview_parts.append(f"Top modules: {module_names}.")
+    if file_names:
+        overview_parts.append(f"Top files: {file_names}.")
+    if related_module_names:
+        overview_parts.append(f"Query-matched modules: {related_module_names}.")
+    if related_file_names:
+        overview_parts.append(f"Query-matched files: {related_file_names}.")
     return {
         "status": "READY",
+        "context_mode": "code_augmented",
+        "index_status": "READY",
+        "index_hint": None,
         "query": query,
+        "architecture_overview": " ".join(overview_parts),
         "architecture_map": {
             "indexed_at": run.get("completed_at"),
             "repo_path": run.get("repo_path"),
-            "summary": snapshot.get("stats") or {},
-            "top_modules": list(architecture.get("top_modules") or []),
-            "top_files": list(architecture.get("top_files") or []),
+            "summary": summary,
+            "top_modules": top_modules,
+            "top_files": top_files,
         },
         "relevant_symbols": relevant_symbols,
+        "related_modules": related_modules,
+        "related_files": related_files,
         "citations": citations,
         "gaps": [] if citations else ["No high-scoring code citations for this query."],
     }
@@ -631,7 +665,11 @@ def install_fake_index_backend(monkeypatch, index_store: dict) -> None:
         if ready_run is None or snapshot is None:
             return {
                 "status": "EMPTY",
+                "context_mode": "empty",
+                "index_status": "MISSING",
+                "index_hint": None,
                 "query": query,
+                "architecture_overview": None,
                 "architecture_map": {
                     "indexed_at": None,
                     "repo_path": None,
@@ -646,6 +684,8 @@ def install_fake_index_backend(monkeypatch, index_store: dict) -> None:
                     "top_files": [],
                 },
                 "relevant_symbols": [],
+                "related_modules": [],
+                "related_files": [],
                 "citations": [],
             }
         return _build_context_from_snapshot(ready_run, snapshot, query=query, limit=limit)

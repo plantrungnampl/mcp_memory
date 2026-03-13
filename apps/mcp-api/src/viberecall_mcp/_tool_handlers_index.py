@@ -115,6 +115,37 @@ async def handle_get_context_pack(
         query=query,
         limit=limit,
     )
+    has_ready_index = str(context.get("status") or "") == "READY"
+
+    fallback_fact_results: list[dict] = []
+    fallback_entity_rows: list[dict] = []
+    if not has_ready_index:
+        fallback_fact_results = [
+            item
+            for item in await root.search_canonical_memory(
+                arguments["session"],
+                project_id=project_id,
+                query=query,
+                filters=None,
+                sort="RELEVANCE",
+                limit=max(limit * 3, 25),
+                offset=0,
+            )
+            if item.get("kind") == "fact"
+        ][:limit]
+        fallback_entity_rows = list(
+            (
+                await root.search_canonical_entities(
+                    arguments["session"],
+                    project_id=project_id,
+                    query=query,
+                    entity_kinds=None,
+                    salience_classes=None,
+                    limit=max(limit, 1),
+                )
+            ).get("entities")
+            or []
+        )[:limit]
 
     timeline_rows = await root.list_timeline_episodes(
         arguments["session"],
@@ -147,6 +178,21 @@ async def handle_get_context_pack(
     citations.extend(
         [
             {
+                "citation_id": str((item.get("fact") or {}).get("fact_version_id") or ""),
+                "source_type": "canonical_fact",
+                "fact_version_id": (item.get("fact") or {}).get("fact_version_id"),
+                "fact_group_id": (item.get("fact") or {}).get("fact_group_id"),
+                "statement": (item.get("fact") or {}).get("statement") or (item.get("fact") or {}).get("text"),
+                "valid_at": (item.get("fact") or {}).get("valid_at"),
+                "score": item.get("score"),
+            }
+            for item in fallback_fact_results
+            if (item.get("fact") or {}).get("fact_version_id")
+        ]
+    )
+    citations.extend(
+        [
+            {
                 "citation_id": f"episode:{row['episode_id']}",
                 "source_type": "timeline_episode",
                 "episode_id": row["episode_id"],
@@ -162,6 +208,40 @@ async def handle_get_context_pack(
     context["facts_timeline"] = facts_timeline
     code_anchors = [item for item in citations if item.get("source_type") == "code_chunk"]
     expanded_entities = [root._entity_payload(item) for item in (context.get("relevant_symbols") or [])[:limit]]
+    if not expanded_entities and fallback_fact_results:
+        expanded_entities = root._expanded_entities_from_page(fallback_fact_results, limit=max(limit, 1))
+    if not expanded_entities and fallback_entity_rows:
+        expanded_entities = [root._entity_payload(item) for item in fallback_entity_rows[:limit]]
+
+    if has_ready_index:
+        context.setdefault("context_mode", "code_augmented")
+        context.setdefault("index_status", "READY")
+        context.setdefault("index_hint", None)
+    else:
+        has_memory_fallback = bool(fallback_fact_results or facts_timeline or expanded_entities)
+        context["status"] = "READY" if has_memory_fallback else "EMPTY"
+        context["context_mode"] = "memory_only" if has_memory_fallback else "empty"
+        context["index_status"] = "MISSING"
+        context["index_hint"] = {
+            "recommended": True,
+            "tool": "viberecall_index_repo",
+            "reason": "No READY code index snapshot is available for this project.",
+        }
+        context["architecture_overview"] = (
+            f"Memory-only context for this query: {len(fallback_fact_results)} relevant facts, "
+            f"{len(facts_timeline)} timeline episodes, and {len(expanded_entities)} matched entities. "
+            "Run viberecall_index_repo for architecture and code citations."
+            if has_memory_fallback
+            else None
+        )
+        context["related_modules"] = []
+        context["related_files"] = []
+
+    gaps = list(context.get("gaps") or [])
+    if not has_ready_index:
+        gaps.append("No READY code index snapshot; context pack is memory-only until viberecall_index_repo completes.")
+    context["gaps"] = gaps
+
     working_memory = None
     task_id = arguments.get("task_id")
     session_id = arguments.get("session_id")

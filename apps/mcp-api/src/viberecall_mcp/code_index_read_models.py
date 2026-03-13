@@ -195,6 +195,42 @@ def _chunk_score(query_tokens: set[str], chunk: dict[str, Any], boosted_entity_i
     return min(base, 1.0)
 
 
+def _architecture_overview(
+    *,
+    summary: dict[str, Any],
+    top_modules: list[dict[str, Any]],
+    top_files: list[dict[str, Any]],
+    related_modules: list[dict[str, Any]],
+    related_files: list[dict[str, Any]],
+) -> str:
+    module_names = ", ".join(str(item.get("module") or "") for item in top_modules[:3] if item.get("module"))
+    file_names = ", ".join(str(item.get("file_path") or "") for item in top_files[:3] if item.get("file_path"))
+    related_module_names = ", ".join(
+        str(item.get("name") or "") for item in related_modules[:3] if item.get("name")
+    )
+    related_file_names = ", ".join(
+        str(item.get("file_path") or item.get("name") or "") for item in related_files[:3] if item.get("name")
+    )
+
+    parts = [
+        (
+            f"Snapshot covers {int(summary.get('file_count') or 0)} files, "
+            f"{int(summary.get('symbol_count') or 0)} symbols, "
+            f"{int(summary.get('entity_count') or 0)} entities, and "
+            f"{int(summary.get('relationship_count') or 0)} relationships."
+        )
+    ]
+    if module_names:
+        parts.append(f"Top modules: {module_names}.")
+    if file_names:
+        parts.append(f"Top files: {file_names}.")
+    if related_module_names:
+        parts.append(f"Query-matched modules: {related_module_names}.")
+    if related_file_names:
+        parts.append(f"Query-matched files: {related_file_names}.")
+    return " ".join(parts)
+
+
 async def build_context_pack_impl(
     *,
     session: AsyncSession,
@@ -206,7 +242,11 @@ async def build_context_pack_impl(
     if ready_run is None:
         return {
             "status": "EMPTY",
+            "context_mode": "empty",
+            "index_status": "MISSING",
+            "index_hint": None,
             "query": query,
+            "architecture_overview": None,
             "architecture_map": {
                 "indexed_at": None,
                 "repo_path": None,
@@ -221,6 +261,8 @@ async def build_context_pack_impl(
                 "top_files": [],
             },
             "relevant_symbols": [],
+            "related_modules": [],
+            "related_files": [],
             "citations": [],
         }
 
@@ -286,7 +328,13 @@ async def build_context_pack_impl(
     )
     top_chunks = ranked_chunks[: max(limit, 1)]
 
-    relevant_symbols = [item for item in entity_result.get("entities", []) if item.get("type") == "Symbol"][:limit]
+    relevant_entities = list(entity_result.get("entities", []) or [])
+    relevant_symbols = [item for item in relevant_entities if item.get("type") == "Symbol"][:limit]
+    related_modules = [item for item in relevant_entities if item.get("type") == "Module"][:limit]
+    related_files = [item for item in relevant_entities if item.get("type") == "File"][:limit]
+    summary = _stats_payload(ready_run)
+    top_modules = list(ready_run.get("top_modules_json") or [])
+    top_files = list(ready_run.get("top_files_json") or [])
     citations = [
         {
             "citation_id": str(chunk.get("chunk_id") or ""),
@@ -303,15 +351,27 @@ async def build_context_pack_impl(
 
     return {
         "status": "READY",
+        "context_mode": "code_augmented",
+        "index_status": "READY",
+        "index_hint": None,
         "query": query,
+        "architecture_overview": _architecture_overview(
+            summary=summary,
+            top_modules=top_modules,
+            top_files=top_files,
+            related_modules=related_modules,
+            related_files=related_files,
+        ),
         "architecture_map": {
             "indexed_at": _iso_or_none(ready_run.get("completed_at")),
             "repo_path": ready_run.get("repo_path"),
-            "summary": _stats_payload(ready_run),
-            "top_modules": list(ready_run.get("top_modules_json") or []),
-            "top_files": list(ready_run.get("top_files_json") or []),
+            "summary": summary,
+            "top_modules": top_modules,
+            "top_files": top_files,
         },
         "relevant_symbols": relevant_symbols,
+        "related_modules": related_modules,
+        "related_files": related_files,
         "citations": citations,
         "gaps": [] if citations else ["No high-scoring code citations for this query."],
     }
