@@ -45,8 +45,9 @@ Recovery:
 
 1. stop broad repeated searches
 2. call `viberecall_get_context_pack`
-3. if the task is entity-centric, identify the entity with `viberecall_search_entities`
-4. only then call `viberecall_get_neighbors`
+3. inspect whether the result is `code_augmented`, `memory_only`, or `empty`
+4. if the task is entity-centric, identify the entity with `viberecall_search_entities`
+5. only then call `viberecall_get_neighbors`
 
 This is the recovery path for tool spam.
 
@@ -60,9 +61,10 @@ Symptoms:
 Recovery:
 
 1. call `viberecall_get_index_status`
-2. if stale, trigger `viberecall_index_repo` from a trusted workflow
-3. wait for readiness
-4. rerun `viberecall_get_context_pack`
+2. if `get_context_pack` is already `code_augmented` and the index is current, do not re-index reflexively
+3. if the pack is `memory_only` or `empty` and the task needs code structure, trigger `viberecall_index_repo` from a trusted workflow
+4. wait for readiness
+5. rerun `viberecall_get_context_pack`
 
 ## 5. Local repository is not visible to the hosted service
 

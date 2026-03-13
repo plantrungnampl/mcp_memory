@@ -32,6 +32,7 @@ Good default:
 
 - call `viberecall_get_status` first to verify the active project and runtime health
 - call `viberecall_get_context_pack` at the start of a meaningful task
+- inspect `context_mode`, `index_status`, and `index_hint` before deciding indexing is necessary
 - call `viberecall_search_entities` only when the task is entity-centric
 - call `viberecall_get_neighbors` only after the right entity is known
 
@@ -47,7 +48,7 @@ Good default:
 Good default:
 
 - call `viberecall_get_index_status`
-- only trigger `viberecall_index_repo` when code context is stale or missing
+- only trigger `viberecall_index_repo` when code context is stale or missing and `get_context_pack` shows `memory_only` or `empty`
 - keep indexing disabled for normal agents unless the workflow is explicitly trusted
 
 ### 4. Make the local workspace boundary explicit

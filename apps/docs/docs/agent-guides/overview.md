@@ -40,9 +40,15 @@ This gives the agent enough surface to:
 - narrow down to entities when needed
 - inspect lineage before trusting a fact
 - persist a meaningful observation
-- check whether code context is ready
+- check whether code context is ready when the broad pack says it is missing
 
 It does not hand the agent every privileged or potentially noisy tool by default.
+
+Important nuance:
+
+- `viberecall_get_context_pack` may return useful `memory_only` context even when no READY code index exists
+- that does not mean indexing failed
+- it means the agent should decide whether code structure is actually needed before triggering `viberecall_index_repo`
 
 ## Optional capabilities are exactly that
 

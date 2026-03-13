@@ -98,6 +98,18 @@ What these are for:
 - checking whether an index is `READY`
 - building a bounded context pack for a task without handcrafting many raw searches
 
+`viberecall_get_context_pack` is now a dual-mode retrieval surface:
+
+- `context_mode = "code_augmented"` when a READY code index exists
+- `context_mode = "memory_only"` when no READY code index exists but relevant memory still gives usable context
+- `context_mode = "empty"` only when neither code index nor memory produces useful context
+
+Related fields:
+
+- `index_status = "READY" | "MISSING"`
+- `index_hint` suggests `viberecall_index_repo` when richer code context is missing
+- `architecture_overview`, `related_modules`, and `related_files` are additive structure signals for indexed packs
+
 Daily-driver note:
 
 - `viberecall_get_context_pack` is the best default entry point for larger tasks
@@ -106,10 +118,70 @@ Daily-driver note:
 Recommended use:
 
 - call `viberecall_get_context_pack` when the task is broad and you want bounded context quickly
+- inspect `context_mode`, `index_status`, and any `gaps` before assuming code structure is available
 - check index status before triggering a new index
 - reserve fresh indexing for cases where code context is missing, stale, or materially changed
 
 Do not trigger indexing reflexively at the start of every task. That slows workflows and broadens permissions unnecessarily.
+
+### Practical `get_context_pack` examples
+
+Indexed path:
+
+```json
+{
+  "status": "READY",
+  "context_mode": "code_augmented",
+  "index_status": "READY",
+  "index_hint": null,
+  "architecture_overview": "Snapshot covers 218 files, 941 symbols, 611 entities, and 1332 relationships. Top modules: apps/web/src/app, apps/mcp-api/src/viberecall_mcp. Query-matched files: apps/mcp-api/src/viberecall_mcp/_tool_handlers_index.py.",
+  "related_modules": [{ "name": "apps/mcp-api/src/viberecall_mcp", "type": "Module" }],
+  "related_files": [{ "name": "apps/mcp-api/src/viberecall_mcp/_tool_handlers_index.py", "type": "File" }],
+  "relevant_symbols": [{ "name": "handle_get_context_pack", "type": "Symbol" }]
+}
+```
+
+Memory-only fallback:
+
+```json
+{
+  "status": "READY",
+  "context_mode": "memory_only",
+  "index_status": "MISSING",
+  "index_hint": {
+    "recommended": true,
+    "tool": "viberecall_index_repo",
+    "reason": "No READY code index snapshot is available for this project."
+  },
+  "architecture_overview": "Memory-only context for this query: 3 relevant facts, 2 timeline episodes, and 1 matched entities. Run viberecall_index_repo for architecture and code citations.",
+  "related_modules": [],
+  "related_files": [],
+  "citations": [{ "source_type": "canonical_fact" }, { "source_type": "timeline_episode" }]
+}
+```
+
+Truly empty:
+
+```json
+{
+  "status": "EMPTY",
+  "context_mode": "empty",
+  "index_status": "MISSING",
+  "index_hint": {
+    "recommended": true,
+    "tool": "viberecall_index_repo",
+    "reason": "No READY code index snapshot is available for this project."
+  },
+  "citations": [],
+  "facts_timeline": []
+}
+```
+
+Operator note:
+
+- `status = "READY"` no longer means "a READY code index exists"
+- it means "the tool returned usable context", which may still be memory-only
+- code-heavy tasks should look at `context_mode` before deciding whether indexing is needed
 
 ## Graph and entity reasoning tools
 
@@ -207,6 +279,7 @@ Do not treat free-form text before envelope parsing as the source of truth.
 Prefer these patterns:
 
 - start with `viberecall_get_context_pack` for broad task context
+- treat `memory_only` as usable context rather than an automatic failure
 - use `viberecall_search_entities` and `viberecall_get_neighbors` when the task is entity-centric
 - use `viberecall_explain_fact` before attempting to correct a fact
 - use `viberecall_get_index_status` before triggering fresh indexing
@@ -256,6 +329,11 @@ Use this simple decision table:
 | You want to record something worth remembering | `viberecall_save_episode` |
 
 If you still cannot decide, start with `viberecall_get_context_pack`. It is the most forgiving broad entry point for nontrivial work.
+
+Deployment note:
+
+- public docs may deploy before every hosted backend is redeployed
+- if a specific environment still returns the older dead-zero pack, check whether that backend has the dual-mode `context_pack` patch yet
 
 ## Related reading
 

@@ -49,11 +49,14 @@
 - On 2026-03-13, host-aware redirects stayed inside the existing `apps/web` project: apex traffic should canonicalize to `www`, landing CTA links should target `app`, and `www` requests for `/login`, `/auth/*`, and `/projects/*` should redirect to the same path on `app`.
 - On 2026-03-13, the login-page header branding was intentionally split from the app-shell branding: clicking the `VIBERECALL` mark on `app.<domain>/login` should return to the marketing host, while app-shell/dashboard branding behavior stays unchanged for now.
 - On 2026-03-13, Graph Playground emptiness for live project data was traced to a Celery worker boot defect: the worker started from `viberecall_mcp.workers.celery_app` without loading `viberecall_mcp.workers.tasks`, so `viberecall.ingest_episode` messages were discarded as unregistered even though MCP save and canonical fact reads succeeded.
+- On 2026-03-13, `viberecall_get_context_pack` was widened carefully from an index-only broad entry point into a dual-mode retrieval surface: with a READY code index it now returns richer architecture-oriented fields (`related_modules`, `related_files`, `architecture_overview`), and without a READY code index it can fall back to memory-only context plus an explicit indexing hint instead of always returning a dead-zero pack.
 - On 2026-03-13, a second production worker defect was traced to the Celery async DB wrapper layer: sync Celery tasks were calling `asyncio.run(...)` per job while reusing the process-global async SQLAlchemy engine/sessionmaker, so pooled asyncpg connections could survive across short-lived event loops and surface `InterfaceError: another operation is in progress` on retries.
 - On 2026-03-13, the smallest safe mitigation for that worker defect was to dispose the async DB engine pool immediately before and after each Celery async job wrapper invocation instead of widening the runtime architecture.
+- On 2026-03-13, public docs for `viberecall_get_context_pack` were aligned to the new dual-mode contract: MCP reference and backend README now document `code_augmented` versus `memory_only` behavior explicitly, while guides/playbooks were tightened to treat indexing as a manual follow-up only when broad context still lacks needed code structure.
 
 ## State
 - Backend validation for the current entity-resolution/unresolved-mention slice is green.
+- Backend validation for the new `context_pack` dual-mode retrieval contract is green: MCP indexing tests and MCP transport tests pass after adding memory-only fallback and richer indexed architecture fields.
 - Live Supabase schema and migration history are aligned for `016_pin_memory_salience`, `017_entity_resolution_foundation`, and `018_unresolved_mentions_identity`.
 - Spec docs, backend README, and root README are aligned with the implemented backend contract and scope model.
 - The repo contains explicit DigitalOcean deployment artifacts alongside the existing Render artifacts: a DO-specific compose file, a Caddy proxy config, and a Vercel + DigitalOcean runbook.
@@ -78,6 +81,7 @@
 - The `/login` auth surface no longer depends on a broken dynamic public-env lookup: local and production client bundles can now inline `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` correctly, matching the server-side login render path.
 - The current backend code now includes the worker task module in Celery app startup, so `viberecall.ingest_episode` should register when the worker boots; production still needs a Droplet redeploy before Graph Playground can benefit.
 - The current backend code now also disposes the async DB engine pool around each Celery `asyncio.run(...)` wrapper, with local regression coverage proving the cleanup runs on both success and failure paths; production still needs a Droplet redeploy to verify the asyncpg retry failure is gone.
+- The docs set now reflects the dual-mode `context_pack` behavior: public reference pages document `context_mode`, `index_status`, `index_hint`, and richer indexed architecture fields, while agent guides/playbooks describe the workflow as "inspect pack mode first, then decide whether indexing is worth it."
 
 ## Done
 - Fetched the current upstream `https://raw.githubusercontent.com/obra/superpowers/refs/heads/main/.codex/INSTALL.md`, confirmed the native-skill instructions, cloned `obra/superpowers` into `/home/theshy/.codex/superpowers`, and created the `/home/theshy/.agents/skills/superpowers` symlink target.
@@ -157,6 +161,8 @@
 - Added `dispose_engine()` in `apps/mcp-api/src/viberecall_mcp/db.py` and a shared `_run_worker_async_job(...)` helper in `apps/mcp-api/src/viberecall_mcp/workers/tasks.py` so Celery async jobs dispose the pooled async engine before and after each `asyncio.run(...)`.
 - Added regression coverage in `apps/mcp-api/tests/test_runtime_backends.py` asserting the worker async wrapper disposes the engine on both success and failure paths.
 - Verified `UV_CACHE_DIR=/tmp/uv-cache uv run --project apps/mcp-api pytest -q apps/mcp-api/tests/test_runtime_backends.py -k 'celery or run_worker_async_job'` -> `5 passed, 8 deselected`.
+- Updated `apps/docs` and `apps/mcp-api/README.md` so `viberecall_get_context_pack` is documented as a dual-mode retrieval surface rather than an index-only broad entry point.
+- Verified `pnpm --dir apps/docs build` after the docs sweep.
 
 ## Now
 - The local machine now has the upstream `superpowers` native skill install in place, but the current Codex process still needs a restart before newly discovered skills can be used in-session.
@@ -166,6 +172,7 @@
 - Remaining work after this turn is mostly operational: redeploy the patched web build, populate `NEXT_PUBLIC_MARKETING_URL` in the hosted web project, confirm Supabase/Google OAuth provider config against the `app` host, provision/confirm production envs, and run deployed smoke/browser QA.
 - Remaining work after this turn is also operational on the backend: redeploy the Droplet worker/API containers so the Celery registration fix reaches production and queued ingest jobs can materialize into Graph Playground data.
 - Remaining work after this turn is also operational on the backend: redeploy the Droplet worker/API containers so both the Celery task-registration fix and the async DB engine-disposal patch reach production, then confirm queued ingest jobs complete without asyncpg `InterfaceError`.
+- Public docs now describe the new `context_pack` contract even if a hosted backend still runs the older behavior; operator guidance should treat that as a deployment-version issue, not a docs inconsistency.
 - Remaining SEO work after this turn is operational/content-focused: bind real production domains, submit sitemaps to Search Console, and decide whether to add more product-intent docs pages before any broader content-marketing expansion.
 - The current code changes for the SEO follow-up, favicon alignment, Graphiti/OpenAI env hardening, and the `www`/`app` host split are locally verified and ready to be reviewed/staged together.
 
@@ -192,6 +199,8 @@
 - Redeploy Vercel web/docs and verify the new favicon after a hard refresh, since browser favicon caching is often sticky.
 - Update the real Droplet `.env.production` to match the new Graphiti/OpenAI default shape, then redeploy the backend and confirm Graphiti sync succeeds with a real ingest flow.
 - Pull the latest repo on the Droplet, run `docker compose -f ops/docker-compose.digitalocean.yml --env-file .env.production up -d --build`, then watch `worker` logs for successful `viberecall.ingest_episode` handling instead of `Received unregistered task`.
+- Validate the new `context_pack` behavior against the real deployed project: confirm memory-only fallback on projects without READY code index and richer architecture fields after a successful `index_repo`.
+- After the next backend redeploy, spot-check the public docs against the live hosted runtime so the published `context_pack` contract and the deployed API behavior match again.
 - After redeploy, watch `docker compose -f ops/docker-compose.digitalocean.yml --env-file .env.production logs -f worker` during a fresh `viberecall_save` and confirm the prior asyncpg error `cannot perform operation: another operation is in progress` no longer appears.
 
 ## Open questions

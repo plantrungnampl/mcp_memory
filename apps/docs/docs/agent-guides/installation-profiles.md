@@ -53,6 +53,7 @@ Recommended additions on top of Profile B:
 Operational note:
 
 - `viberecall_index_repo` is powerful and useful, but it should not be enabled casually if the team is not ready for code-index maintenance workflows
+- `viberecall_get_context_pack` can still return useful `memory_only` context when no READY code index exists, so Profile C should be added when the agent truly needs repo structure or code citations rather than broad task context alone
 
 ## Profile D: Operator or admin
 

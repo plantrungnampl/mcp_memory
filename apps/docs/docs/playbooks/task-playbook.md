@@ -12,8 +12,9 @@ Use this when a new task begins or the task direction changes materially.
 1. Call `viberecall_get_status`.
 2. Confirm the active project and runtime look correct.
 3. Call `viberecall_get_context_pack` with a concise task description.
-4. If the task is about a specific service, component, or entity, call `viberecall_search_entities`.
-5. If needed, call `viberecall_get_neighbors` for a bounded dependency view.
+4. Inspect `context_mode`, `index_status`, and any `index_hint` or `gaps`.
+5. If the task is about a specific service, component, or entity, call `viberecall_search_entities`.
+6. If needed, call `viberecall_get_neighbors` for a bounded dependency view.
 
 Why:
 
@@ -46,11 +47,12 @@ Do not save:
 Use this when the task depends on code structure, dependency maps, or recent repository changes.
 
 1. Call `viberecall_get_index_status`.
-2. If the index is stale or missing, decide whether the current workflow is trusted to trigger indexing.
-3. If not explicitly trusted, stop and ask the human.
-4. If trusted, trigger `viberecall_index_repo`.
-5. Wait until the index becomes ready.
-6. Refresh task context with `viberecall_get_context_pack`.
+2. If `get_context_pack` is already `code_augmented` and the index is current, keep working.
+3. If `get_context_pack` is `memory_only` or `empty`, decide whether the current workflow is trusted to trigger indexing.
+4. If not explicitly trusted, stop and ask the human.
+5. If trusted, trigger `viberecall_index_repo`.
+6. Wait until the index becomes ready.
+7. Refresh task context with `viberecall_get_context_pack`.
 
 This avoids starting a refactor with stale code context and avoids silent privilege expansion.
 

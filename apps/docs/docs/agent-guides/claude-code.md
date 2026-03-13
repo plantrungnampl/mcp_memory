@@ -62,8 +62,9 @@ Avoid broad daily-driver exposure for privileged maintenance tools such as entit
 ### Start of task
 
 1. Call `viberecall_get_context_pack`.
-2. If the task revolves around a known component, service, or entity, call `viberecall_search_entities`.
-3. Use `viberecall_get_neighbors` only once the task is anchored on the right entity.
+2. Inspect `context_mode`, `index_status`, and any `gaps` or `index_hint`.
+3. If the task revolves around a known component, service, or entity, call `viberecall_search_entities`.
+4. Use `viberecall_get_neighbors` only once the task is anchored on the right entity.
 
 ### During work
 
@@ -74,8 +75,9 @@ Avoid broad daily-driver exposure for privileged maintenance tools such as entit
 ### Before a code-heavy refactor
 
 1. Check `viberecall_get_index_status`.
-2. If the latest index is stale or missing, trigger or request `viberecall_index_repo`.
-3. Retry the task context retrieval after the index is ready.
+2. If `get_context_pack` is already `code_augmented` and the index is current, keep working.
+3. If `get_context_pack` is `memory_only` and you need repo structure or code citations, trigger or request `viberecall_index_repo`.
+4. Retry the task context retrieval after the index is ready.
 
 ## Prompts and resources policy
 
@@ -93,6 +95,7 @@ If tools work and prompts do not appear, the platform is still usable.
 - Treating missing resources as a server outage.
 - Reusing a stale session after a restart.
 - Over-enabling write or admin tools in a normal developer profile.
+- Treating a `memory_only` context pack as a failed query instead of a fallback that may already be enough.
 - Assuming the hosted server can inspect local uncommitted files directly.
 
 ## Local dirty workspace story

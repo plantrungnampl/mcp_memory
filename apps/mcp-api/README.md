@@ -72,6 +72,7 @@ uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
   - `GRAPHITI_LLM_MODEL` defaults to `gpt-4.1-mini`.
   - `GRAPHITI_EMBEDDER_MODEL` defaults to `text-embedding-3-small`.
   - `GRAPHITI_MCP_BRIDGE_MODE=legacy|upstream_bridge` (default `legacy`).
+  - This app layer expects direct OpenAI-style credentials through `GRAPHITI_API_KEY`; it does not expose a separate Graphiti base URL override.
   - `upstream_bridge` keeps `viberecall_*` public tool contract but uses upstream Graphiti MCP-style bridge internally for search/facts/timeline paths.
   - `GRAPHITI_TELEMETRY_ENABLED=false` is recommended for local development.
 - Raw episode storage rule (spec v0.1):
@@ -87,6 +88,19 @@ uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
   - `INDEX_REPO_ALLOWED_ROOTS` is an optional comma-separated allowlist for `viberecall_index_repo`.
   - When unset or blank, indexing is limited to the monorepo root by default.
   - To index another local repo in development, add its absolute path to `INDEX_REPO_ALLOWED_ROOTS`.
+- `viberecall_get_context_pack` is a dual-mode retrieval surface:
+  - `context_mode=code_augmented` when a READY code index snapshot exists
+  - `context_mode=memory_only` when no READY code index exists but relevant memory still provides usable context
+  - `context_mode=empty` only when neither code nor memory yields useful context
+  - `status=READY` therefore means "usable context returned", not necessarily "READY code index exists"
+  - additive fields now include:
+    - `index_status=READY|MISSING`
+    - `index_hint` for `viberecall_index_repo`
+    - `architecture_overview`
+    - `related_modules`
+    - `related_files`
+  - existing fields such as `architecture_map`, `relevant_symbols`, `citations`, `facts_timeline`, `decision_history`, and `working_memory_patch` remain part of the response
+  - code-heavy callers should inspect `context_mode` before assuming architecture or code citations are available
 - Control-plane HTTP routes require an internal signed assertion from the web BFF:
   - `X-Control-Plane-Assertion`
   - `X-Request-Id`
@@ -166,7 +180,7 @@ Expected startup checks before using `viberecall-local`:
 ## Run worker
 
 ```bash
-MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=celery \
+MEMORY_BACKEND=graphiti KV_BACKEND=redis QUEUE_BACKEND=celery \
 uv run celery -A viberecall_mcp.workers.celery_app worker -l info
 ```
 
@@ -175,9 +189,11 @@ uv run celery -A viberecall_mcp.workers.celery_app worker -l info
 - Repository root now includes `.env.production.example` plus `ops/docker-compose.production.yml`.
 - Repository root also includes `ops/docker-compose.digitalocean.yml` for the hosted DigitalOcean Droplet runtime.
 - Default public-GA runtime shape is:
-  - `MEMORY_BACKEND=falkordb`
+  - `MEMORY_BACKEND=graphiti`
   - `KV_BACKEND=redis`
   - `QUEUE_BACKEND=celery`
+  - `GRAPHITI_API_KEY=<OpenAI API key>`
+  - FalkorDB remains required for canonical storage even when Graphiti is enabled.
 - Start the full production-shaped stack from the repository root:
 
 ```bash

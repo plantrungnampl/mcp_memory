@@ -124,6 +124,11 @@ That means:
 - prompts and resources, if enabled by a specific client or deployment, are optional accelerators
 - you should never hide a required workflow behind prompts-only or resources-only assumptions
 
+Practical implication for `viberecall_get_context_pack`:
+
+- it may return `code_augmented`, `memory_only`, or `empty` context depending on whether a READY code index exists and whether relevant memory is available
+- callers should inspect `context_mode` and `index_hint` before deciding that indexing is necessary
+
 For public-safe operator guidance, assume the client may surface tools well and everything else unevenly.
 
 If a client shows prompts or resources, treat that as additional UX, not as proof that the server contract depends on those surfaces.

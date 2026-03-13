@@ -19,6 +19,7 @@ Connection rules:
 
 Default workflow:
 - After viberecall_get_status succeeds, start meaningful tasks with viberecall_get_context_pack.
+- Inspect context_mode, index_status, and index_hint before assuming code context is available.
 - Use viberecall_search_entities only when the task is centered on a known entity.
 - Use viberecall_get_neighbors only after identifying the correct entity.
 - Save meaningful findings with viberecall_save_episode.
@@ -29,7 +30,7 @@ Safety rules:
 - Do not spam broad search calls without refining the task.
 - Do not assume the hosted MCP server can inspect local uncommitted files directly.
 - For local dirty-worktree indexing, use a Git source or workspace bundle flow.
-- Do not trigger viberecall_index_repo unless the workflow is explicitly trusted and code context is actually stale or missing.
+- Do not trigger viberecall_index_repo unless the workflow is explicitly trusted and get_context_pack still indicates code context is stale or missing.
 - Reconnect the MCP server after stale-session errors.
 - Stop and ask the human if the active project, environment, token scope, or trust boundary is unclear.
 - Stop and ask the human if the task appears to require privileged maintenance tools that are not already explicitly approved.

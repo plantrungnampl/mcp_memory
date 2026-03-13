@@ -82,8 +82,9 @@ Keep disabled by default in normal developer profiles:
 ### Start of task
 
 1. Call `viberecall_get_context_pack` with the task description.
-2. If the task is entity-centric, call `viberecall_search_entities`.
-3. Use `viberecall_get_neighbors` only after you know which entity matters.
+2. Inspect `context_mode`, `index_status`, and any `gaps` or `index_hint`.
+3. If the task is entity-centric, call `viberecall_search_entities`.
+4. Use `viberecall_get_neighbors` only after you know which entity matters.
 
 ### During investigation
 
@@ -94,8 +95,9 @@ Keep disabled by default in normal developer profiles:
 ### Before a large refactor
 
 1. Call `viberecall_get_index_status`.
-2. If code context is stale, trigger `viberecall_index_repo` from a trusted workflow.
-3. Wait for the index to become ready before assuming code context is accurate.
+2. If `get_context_pack` was already `code_augmented` and the index looks current, keep working.
+3. If `get_context_pack` was `memory_only` and the task needs code structure, trigger `viberecall_index_repo` only from a trusted workflow.
+4. Wait for the index to become ready before assuming code context is accurate.
 
 ### When correcting a stale belief
 
@@ -107,6 +109,7 @@ Keep disabled by default in normal developer profiles:
 
 - Enabling the entire tool surface when only a handful of tools are needed.
 - Spamming `search_memory` instead of starting with `get_context_pack`.
+- Treating `memory_only` as a broken response instead of a usable fallback.
 - Using graph tools before identifying the relevant entity.
 - Reusing a dead session after the backend restarts.
 - Assuming the hosted core can read the local repository directly.
