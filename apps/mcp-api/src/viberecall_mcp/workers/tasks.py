@@ -14,7 +14,7 @@ from viberecall_mcp.exports import (
     write_local_export,
 )
 from viberecall_mcp.metrics import job_duration_ms
-from viberecall_mcp.db import SessionLocal
+from viberecall_mcp.db import SessionLocal, dispose_engine
 from viberecall_mcp.object_storage import (
     delete_object as delete_episode_object,
     delete_prefix as delete_episode_prefix,
@@ -61,6 +61,22 @@ from viberecall_mcp.workers.celery_app import celery_app
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+def _run_worker_async_job(job_factory):
+    import asyncio
+
+    async def runner():
+        # Celery sync tasks create a fresh event loop per invocation via asyncio.run().
+        # Disposing the pooled async engine on both sides prevents asyncpg connections
+        # from being reused across those short-lived loops and retry attempts.
+        await dispose_engine()
+        try:
+            return await job_factory()
+        finally:
+            await dispose_engine()
+
+    return asyncio.run(runner())
 
 
 def _iso(value) -> str | None:
@@ -741,10 +757,8 @@ def ingest_episode_task(
     token_id: str | None,
     operation_id: str | None = None,
 ) -> dict:
-    import asyncio
-
-    return asyncio.run(
-        run_ingest_job(
+    return _run_worker_async_job(
+        lambda: run_ingest_job(
             episode_id=episode_id,
             project_id=project_id,
             request_id=request_id,
@@ -772,10 +786,8 @@ def update_fact_task(
     reason: str | None,
     operation_id: str | None = None,
 ) -> dict:
-    import asyncio
-
-    return asyncio.run(
-        run_update_fact_job(
+    return _run_worker_async_job(
+        lambda: run_update_fact_job(
             project_id=project_id,
             request_id=request_id,
             token_id=token_id,
@@ -797,10 +809,8 @@ def update_fact_task(
     max_retries=5,
 )
 def export_project_task(export_id: str, project_id: str, request_id: str, token_id: str | None) -> dict:
-    import asyncio
-
-    return asyncio.run(
-        run_export_job(
+    return _run_worker_async_job(
+        lambda: run_export_job(
             export_id=export_id,
             project_id=project_id,
             request_id=request_id,
@@ -817,10 +827,8 @@ def export_project_task(export_id: str, project_id: str, request_id: str, token_
     max_retries=5,
 )
 def retention_project_task(project_id: str, request_id: str, token_id: str | None) -> dict:
-    import asyncio
-
-    return asyncio.run(
-        run_retention_job(
+    return _run_worker_async_job(
+        lambda: run_retention_job(
             project_id=project_id,
             request_id=request_id,
             token_id=token_id,
@@ -836,10 +844,8 @@ def retention_project_task(project_id: str, request_id: str, token_id: str | Non
     max_retries=5,
 )
 def purge_project_task(project_id: str, request_id: str, token_id: str | None) -> dict:
-    import asyncio
-
-    return asyncio.run(
-        run_purge_project_job(
+    return _run_worker_async_job(
+        lambda: run_purge_project_job(
             project_id=project_id,
             request_id=request_id,
             token_id=token_id,
@@ -855,10 +861,8 @@ def purge_project_task(project_id: str, request_id: str, token_id: str | None) -
     max_retries=5,
 )
 def migrate_inline_to_object_task(project_id: str, request_id: str, token_id: str | None, force: bool) -> dict:
-    import asyncio
-
-    return asyncio.run(
-        run_migrate_inline_to_object_job(
+    return _run_worker_async_job(
+        lambda: run_migrate_inline_to_object_job(
             project_id=project_id,
             request_id=request_id,
             token_id=token_id,
@@ -881,7 +885,5 @@ def index_repo_task(
     token_id: str | None,
     operation_id: str | None = None,
 ) -> dict:
-    import asyncio
-
     _ = (project_id, request_id, token_id)
-    return asyncio.run(run_index_job(index_id=index_id, operation_id=operation_id))
+    return _run_worker_async_job(lambda: run_index_job(index_id=index_id, operation_id=operation_id))

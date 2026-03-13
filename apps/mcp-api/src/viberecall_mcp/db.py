@@ -19,6 +19,10 @@ engine = create_async_engine(normalize_database_url(settings.database_url), futu
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
+async def dispose_engine() -> None:
+    await engine.dispose()
+
+
 async def get_db_session() -> AsyncIterator[AsyncSession]:
     async with SessionLocal() as session:
         yield session

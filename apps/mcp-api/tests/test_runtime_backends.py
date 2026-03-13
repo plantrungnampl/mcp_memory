@@ -10,6 +10,7 @@ from viberecall_mcp import code_index
 from viberecall_mcp.db import SessionLocal
 from viberecall_mcp.ids import new_id
 from viberecall_mcp import runtime
+from viberecall_mcp.workers import tasks as worker_tasks
 
 
 def test_runtime_selectors_choose_expected_backends(monkeypatch) -> None:
@@ -214,6 +215,42 @@ def test_celery_app_registers_ingest_task_for_worker_boot() -> None:
     celery_app.loader.import_default_modules()
 
     assert "viberecall.ingest_episode" in celery_app.tasks
+
+
+def test_run_worker_async_job_disposes_engine_before_and_after_success(monkeypatch) -> None:
+    events: list[str] = []
+
+    async def fake_dispose_engine() -> None:
+        events.append("dispose")
+
+    async def fake_job() -> dict[str, str]:
+        events.append("job")
+        return {"status": "complete"}
+
+    monkeypatch.setattr(worker_tasks, "dispose_engine", fake_dispose_engine)
+
+    result = worker_tasks._run_worker_async_job(fake_job)
+
+    assert result == {"status": "complete"}
+    assert events == ["dispose", "job", "dispose"]
+
+
+def test_run_worker_async_job_disposes_engine_after_failure(monkeypatch) -> None:
+    events: list[str] = []
+
+    async def fake_dispose_engine() -> None:
+        events.append("dispose")
+
+    async def fake_job() -> dict[str, str]:
+        events.append("job")
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(worker_tasks, "dispose_engine", fake_dispose_engine)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        worker_tasks._run_worker_async_job(fake_job)
+
+    assert events == ["dispose", "job", "dispose"]
 
 
 async def test_graph_dependency_failure_detail_uses_cached_probe(monkeypatch) -> None:

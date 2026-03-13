@@ -16,6 +16,7 @@
 - Public docs must remain a separate static site; `apps/web` should only keep `/docs` as a compatibility redirect.
 
 ## Key decisions
+- On 2026-03-13, local Codex skill discovery for this machine was aligned with the upstream `obra/superpowers` native install flow: clone to `~/.codex/superpowers`, expose skills via `~/.agents/skills/superpowers`, and do not use any legacy `superpowers-codex bootstrap` block.
 - On 2026-03-13, the VibeRecall MCP write path was verified from Codex by saving a low-importance test episode into the active project memory; this is operational validation only, not a product-scope change.
 - On 2026-03-11, the current spec-v3 entity-resolution pass was closed as a docs/contract/rollout-alignment pass, not a new backend feature slice.
 - The public MCP surface currently has 25 tools; docs and READMEs must track that runtime truth instead of the older 11-tool snapshot.
@@ -48,6 +49,8 @@
 - On 2026-03-13, host-aware redirects stayed inside the existing `apps/web` project: apex traffic should canonicalize to `www`, landing CTA links should target `app`, and `www` requests for `/login`, `/auth/*`, and `/projects/*` should redirect to the same path on `app`.
 - On 2026-03-13, the login-page header branding was intentionally split from the app-shell branding: clicking the `VIBERECALL` mark on `app.<domain>/login` should return to the marketing host, while app-shell/dashboard branding behavior stays unchanged for now.
 - On 2026-03-13, Graph Playground emptiness for live project data was traced to a Celery worker boot defect: the worker started from `viberecall_mcp.workers.celery_app` without loading `viberecall_mcp.workers.tasks`, so `viberecall.ingest_episode` messages were discarded as unregistered even though MCP save and canonical fact reads succeeded.
+- On 2026-03-13, a second production worker defect was traced to the Celery async DB wrapper layer: sync Celery tasks were calling `asyncio.run(...)` per job while reusing the process-global async SQLAlchemy engine/sessionmaker, so pooled asyncpg connections could survive across short-lived event loops and surface `InterfaceError: another operation is in progress` on retries.
+- On 2026-03-13, the smallest safe mitigation for that worker defect was to dispose the async DB engine pool immediately before and after each Celery async job wrapper invocation instead of widening the runtime architecture.
 
 ## State
 - Backend validation for the current entity-resolution/unresolved-mention slice is green.
@@ -74,8 +77,10 @@
 - The `/login` auth surface now presents Google OAuth plus email magic link; GitHub login is no longer wired in the current web code, but successful Google sign-in still depends on Supabase Auth provider configuration outside this repo.
 - The `/login` auth surface no longer depends on a broken dynamic public-env lookup: local and production client bundles can now inline `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` correctly, matching the server-side login render path.
 - The current backend code now includes the worker task module in Celery app startup, so `viberecall.ingest_episode` should register when the worker boots; production still needs a Droplet redeploy before Graph Playground can benefit.
+- The current backend code now also disposes the async DB engine pool around each Celery `asyncio.run(...)` wrapper, with local regression coverage proving the cleanup runs on both success and failure paths; production still needs a Droplet redeploy to verify the asyncpg retry failure is gone.
 
 ## Done
+- Fetched the current upstream `https://raw.githubusercontent.com/obra/superpowers/refs/heads/main/.codex/INSTALL.md`, confirmed the native-skill instructions, cloned `obra/superpowers` into `/home/theshy/.codex/superpowers`, and created the `/home/theshy/.agents/skills/superpowers` symlink target.
 - Verified `viberecall_get_status` returns `ok` for active project `proj_74bda648c86141caaf72416f6ed32bd6` with Graphiti enabled and ready.
 - Verified `viberecall_save_episode` accepted a Codex-origin write-test note and created episode `ep_2c262f688a6b492bbaae27d5aa0d4ae8` with operation `op_6b859d9c838f424c83b242f394e42b16`.
 - Verified `viberecall_search_memory` can retrieve the saved write-test fact and episode immediately after save, confirming the project memory read-after-write path works.
@@ -149,17 +154,23 @@
 - Fixed Celery worker task registration by configuring `viberecall_mcp.workers.celery_app` to include `viberecall_mcp.workers.tasks`, and added a regression test asserting `viberecall.ingest_episode` is present in the Celery task registry after default modules load.
 - Verified `cd apps/mcp-api && UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/test_runtime_backends.py -k "celery"` -> `3 passed, 8 deselected`.
 - Verified directly with `cd apps/mcp-api && uv run python ...` that `celery_app.loader.import_default_modules()` now registers `viberecall.ingest_episode`.
+- Added `dispose_engine()` in `apps/mcp-api/src/viberecall_mcp/db.py` and a shared `_run_worker_async_job(...)` helper in `apps/mcp-api/src/viberecall_mcp/workers/tasks.py` so Celery async jobs dispose the pooled async engine before and after each `asyncio.run(...)`.
+- Added regression coverage in `apps/mcp-api/tests/test_runtime_backends.py` asserting the worker async wrapper disposes the engine on both success and failure paths.
+- Verified `UV_CACHE_DIR=/tmp/uv-cache uv run --project apps/mcp-api pytest -q apps/mcp-api/tests/test_runtime_backends.py -k 'celery or run_worker_async_job'` -> `5 passed, 8 deselected`.
 
 ## Now
+- The local machine now has the upstream `superpowers` native skill install in place, but the current Codex process still needs a restart before newly discovered skills can be used in-session.
 - VibeRecall MCP read/write connectivity is confirmed for active project `proj_74bda648c86141caaf72416f6ed32bd6` from this Codex session; episode `ep_2c262f688a6b492bbaae27d5aa0d4ae8` is visible in timeline and searchable, while async enrichment for operation `op_6b859d9c838f424c83b242f394e42b16` remained `PENDING` as of `2026-03-13T13:23:43Z`.
 - Repository state is stable after the pre-deploy hardening pass and full release validation, with a new in-progress `www` vs `app` host split on the public web surface.
 - The current branch is ready for the chosen topology assumptions: `www` as canonical landing host, `app` as canonical control-plane host, `docs` as the separate docs host, backend runtime on a DigitalOcean Droplet, Redis/Celery enabled, and remote git indexing disabled by default.
 - Remaining work after this turn is mostly operational: redeploy the patched web build, populate `NEXT_PUBLIC_MARKETING_URL` in the hosted web project, confirm Supabase/Google OAuth provider config against the `app` host, provision/confirm production envs, and run deployed smoke/browser QA.
 - Remaining work after this turn is also operational on the backend: redeploy the Droplet worker/API containers so the Celery registration fix reaches production and queued ingest jobs can materialize into Graph Playground data.
+- Remaining work after this turn is also operational on the backend: redeploy the Droplet worker/API containers so both the Celery task-registration fix and the async DB engine-disposal patch reach production, then confirm queued ingest jobs complete without asyncpg `InterfaceError`.
 - Remaining SEO work after this turn is operational/content-focused: bind real production domains, submit sitemaps to Search Console, and decide whether to add more product-intent docs pages before any broader content-marketing expansion.
 - The current code changes for the SEO follow-up, favicon alignment, Graphiti/OpenAI env hardening, and the `www`/`app` host split are locally verified and ready to be reviewed/staged together.
 
 ## Next
+- Restart the Codex CLI so native skill discovery picks up `/home/theshy/.agents/skills/superpowers`.
 - Reuse `viberecall_save_episode` for meaningful architecture or rollout observations instead of relying on `CONTINUITY.md` alone as the memory sink.
 - Keep `www`/root and `app` bound to the web Vercel project, while `docs.<domain>` remains a separate docs Vercel project.
 - Populate Vercel and Droplet production envs, then launch `ops/docker-compose.digitalocean.yml` behind Caddy.
@@ -181,6 +192,7 @@
 - Redeploy Vercel web/docs and verify the new favicon after a hard refresh, since browser favicon caching is often sticky.
 - Update the real Droplet `.env.production` to match the new Graphiti/OpenAI default shape, then redeploy the backend and confirm Graphiti sync succeeds with a real ingest flow.
 - Pull the latest repo on the Droplet, run `docker compose -f ops/docker-compose.digitalocean.yml --env-file .env.production up -d --build`, then watch `worker` logs for successful `viberecall.ingest_episode` handling instead of `Received unregistered task`.
+- After redeploy, watch `docker compose -f ops/docker-compose.digitalocean.yml --env-file .env.production logs -f worker` during a fresh `viberecall_save` and confirm the prior asyncpg error `cannot perform operation: another operation is in progress` no longer appears.
 
 ## Open questions
 - UNCONFIRMED: which real production domains will back `app.<domain>`, `docs.<domain>`, and `api.<domain>` for the public rollout.
