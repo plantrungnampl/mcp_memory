@@ -6,7 +6,21 @@ This repository currently contains:
 
 - a public MCP/control-plane API built with FastAPI + FastMCP
 - a Next.js App Router control-plane web app
-- local and production-candidate runtime surfaces for Postgres, FalkorDB, Redis, and Celery
+- local and production-ready runtime surfaces for Postgres, FalkorDB, Redis, and Celery
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture At A Glance](#architecture-at-a-glance)
+- [Repository Layout](#repository-layout)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Environment Configuration](#environment-configuration)
+- [MCP Quickstart](#mcp-quickstart)
+- [Validation](#validation)
+- [Deployment](#deployment)
+- [Documentation Map](#documentation-map)
+- [Troubleshooting](#troubleshooting)
 
 ## Overview
 
