@@ -208,6 +208,14 @@ async def test_celery_task_queue_uses_delay_result_ids(monkeypatch) -> None:
     assert index_job_id == "celery-index-1"
 
 
+def test_celery_app_registers_ingest_task_for_worker_boot() -> None:
+    from viberecall_mcp.workers.celery_app import celery_app
+
+    celery_app.loader.import_default_modules()
+
+    assert "viberecall.ingest_episode" in celery_app.tasks
+
+
 async def test_graph_dependency_failure_detail_uses_cached_probe(monkeypatch) -> None:
     calls = {"count": 0}
 

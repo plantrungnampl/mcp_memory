@@ -9,6 +9,7 @@ celery_app = Celery(
     "viberecall_mcp",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
+    include=["viberecall_mcp.workers.tasks"],
 )
 celery_app.conf.task_always_eager = settings.queue_backend == "eager"
 celery_app.conf.task_default_queue = "memory"

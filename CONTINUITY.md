@@ -16,6 +16,7 @@
 - Public docs must remain a separate static site; `apps/web` should only keep `/docs` as a compatibility redirect.
 
 ## Key decisions
+- On 2026-03-13, the VibeRecall MCP write path was verified from Codex by saving a low-importance test episode into the active project memory; this is operational validation only, not a product-scope change.
 - On 2026-03-11, the current spec-v3 entity-resolution pass was closed as a docs/contract/rollout-alignment pass, not a new backend feature slice.
 - The public MCP surface currently has 25 tools; docs and READMEs must track that runtime truth instead of the older 11-tool snapshot.
 - `viberecall_resolve_reference` keeps the additive `unresolved_mention` response field; no new public tool was added in this closeout.
@@ -46,6 +47,7 @@
 - On 2026-03-13, the preferred public web host split was narrowed to `www.<domain>` for landing/SEO, `app.<domain>` for auth and dashboard flows, `docs.<domain>` for docs, and `api.<domain>` for the backend; the web env contract now needs a separate `NEXT_PUBLIC_MARKETING_URL`.
 - On 2026-03-13, host-aware redirects stayed inside the existing `apps/web` project: apex traffic should canonicalize to `www`, landing CTA links should target `app`, and `www` requests for `/login`, `/auth/*`, and `/projects/*` should redirect to the same path on `app`.
 - On 2026-03-13, the login-page header branding was intentionally split from the app-shell branding: clicking the `VIBERECALL` mark on `app.<domain>/login` should return to the marketing host, while app-shell/dashboard branding behavior stays unchanged for now.
+- On 2026-03-13, Graph Playground emptiness for live project data was traced to a Celery worker boot defect: the worker started from `viberecall_mcp.workers.celery_app` without loading `viberecall_mcp.workers.tasks`, so `viberecall.ingest_episode` messages were discarded as unregistered even though MCP save and canonical fact reads succeeded.
 
 ## State
 - Backend validation for the current entity-resolution/unresolved-mention slice is green.
@@ -71,8 +73,12 @@
 - Public remote git indexing is disabled by default via `INDEX_REMOTE_GIT_ENABLED=false`; legacy git-index tests now opt in explicitly.
 - The `/login` auth surface now presents Google OAuth plus email magic link; GitHub login is no longer wired in the current web code, but successful Google sign-in still depends on Supabase Auth provider configuration outside this repo.
 - The `/login` auth surface no longer depends on a broken dynamic public-env lookup: local and production client bundles can now inline `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` correctly, matching the server-side login render path.
+- The current backend code now includes the worker task module in Celery app startup, so `viberecall.ingest_episode` should register when the worker boots; production still needs a Droplet redeploy before Graph Playground can benefit.
 
 ## Done
+- Verified `viberecall_get_status` returns `ok` for active project `proj_74bda648c86141caaf72416f6ed32bd6` with Graphiti enabled and ready.
+- Verified `viberecall_save_episode` accepted a Codex-origin write-test note and created episode `ep_2c262f688a6b492bbaae27d5aa0d4ae8` with operation `op_6b859d9c838f424c83b242f394e42b16`.
+- Verified `viberecall_search_memory` can retrieve the saved write-test fact and episode immediately after save, confirming the project memory read-after-write path works.
 - Refreshed `README.md`, `apps/mcp-api/README.md`, and `viberecall_spec_md/` contract docs to match the current 25-tool MCP runtime.
 - Corrected residual spec-v3 doc drift in `01_architecture.md`, `06_pipelines_latency.md`, `appendix_A_mcp_examples.md`, and `appendix_D_capacity.md`.
 - Fixed `apps/mcp-api/scripts/smoke_deployed_mcp.py` so SSE responses are parsed from the first `data:` frame instead of hanging on `response.read()` against FastMCP keep-alive streams.
@@ -140,15 +146,21 @@
 - Verified `pnpm --dir apps/web test:unit`, `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, and `pnpm --dir apps/web build` after the `www`/`app` host split patch.
 - Updated the login screen header logo to target `publicEnv.marketingUrl` instead of the app root so `app.<domain>/login` can return users to the landing page without looping back through the app-root redirect.
 - Updated the Google OAuth login request in `apps/web` to pass `queryParams.prompt = "select_account"` through Supabase so account switching is explicit on every sign-in attempt.
+- Fixed Celery worker task registration by configuring `viberecall_mcp.workers.celery_app` to include `viberecall_mcp.workers.tasks`, and added a regression test asserting `viberecall.ingest_episode` is present in the Celery task registry after default modules load.
+- Verified `cd apps/mcp-api && UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q tests/test_runtime_backends.py -k "celery"` -> `3 passed, 8 deselected`.
+- Verified directly with `cd apps/mcp-api && uv run python ...` that `celery_app.loader.import_default_modules()` now registers `viberecall.ingest_episode`.
 
 ## Now
+- VibeRecall MCP read/write connectivity is confirmed for active project `proj_74bda648c86141caaf72416f6ed32bd6` from this Codex session; episode `ep_2c262f688a6b492bbaae27d5aa0d4ae8` is visible in timeline and searchable, while async enrichment for operation `op_6b859d9c838f424c83b242f394e42b16` remained `PENDING` as of `2026-03-13T13:23:43Z`.
 - Repository state is stable after the pre-deploy hardening pass and full release validation, with a new in-progress `www` vs `app` host split on the public web surface.
 - The current branch is ready for the chosen topology assumptions: `www` as canonical landing host, `app` as canonical control-plane host, `docs` as the separate docs host, backend runtime on a DigitalOcean Droplet, Redis/Celery enabled, and remote git indexing disabled by default.
 - Remaining work after this turn is mostly operational: redeploy the patched web build, populate `NEXT_PUBLIC_MARKETING_URL` in the hosted web project, confirm Supabase/Google OAuth provider config against the `app` host, provision/confirm production envs, and run deployed smoke/browser QA.
+- Remaining work after this turn is also operational on the backend: redeploy the Droplet worker/API containers so the Celery registration fix reaches production and queued ingest jobs can materialize into Graph Playground data.
 - Remaining SEO work after this turn is operational/content-focused: bind real production domains, submit sitemaps to Search Console, and decide whether to add more product-intent docs pages before any broader content-marketing expansion.
 - The current code changes for the SEO follow-up, favicon alignment, Graphiti/OpenAI env hardening, and the `www`/`app` host split are locally verified and ready to be reviewed/staged together.
 
 ## Next
+- Reuse `viberecall_save_episode` for meaningful architecture or rollout observations instead of relying on `CONTINUITY.md` alone as the memory sink.
 - Keep `www`/root and `app` bound to the web Vercel project, while `docs.<domain>` remains a separate docs Vercel project.
 - Populate Vercel and Droplet production envs, then launch `ops/docker-compose.digitalocean.yml` behind Caddy.
 - Set `NEXT_PUBLIC_MARKETING_URL=https://www.<your-domain>` in the web Vercel project before the next production deployment.
@@ -168,6 +180,7 @@
 - Decide later whether to add real public `about/contact/privacy/terms` pages or keep the landing intentionally minimal.
 - Redeploy Vercel web/docs and verify the new favicon after a hard refresh, since browser favicon caching is often sticky.
 - Update the real Droplet `.env.production` to match the new Graphiti/OpenAI default shape, then redeploy the backend and confirm Graphiti sync succeeds with a real ingest flow.
+- Pull the latest repo on the Droplet, run `docker compose -f ops/docker-compose.digitalocean.yml --env-file .env.production up -d --build`, then watch `worker` logs for successful `viberecall.ingest_episode` handling instead of `Received unregistered task`.
 
 ## Open questions
 - UNCONFIRMED: which real production domains will back `app.<domain>`, `docs.<domain>`, and `api.<domain>` for the public rollout.
