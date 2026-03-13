@@ -19,6 +19,10 @@ _LOCAL_SECRET_PLACEHOLDERS = {
     "control_plane_internal_secret": "dev-control-plane-secret",
     "stripe_webhook_secret": "whsec_dev",
 }
+_GRAPHITI_API_KEY_PLACEHOLDERS = {
+    "",
+    "replace-with-openai-key",
+}
 
 
 def resolve_env_file() -> str:
@@ -106,6 +110,10 @@ class Settings(BaseSettings):
 
         if not self.token_pepper.strip():
             violations.append("TOKEN_PEPPER must be configured")
+
+        graphiti_api_key = (self.graphiti_api_key or "").strip()
+        if self.memory_backend == "graphiti" and graphiti_api_key.lower() in _GRAPHITI_API_KEY_PLACEHOLDERS:
+            violations.append("GRAPHITI_API_KEY must be configured when MEMORY_BACKEND=graphiti")
 
         if violations:
             raise ValueError("; ".join(violations))

@@ -53,6 +53,32 @@ def test_settings_reject_placeholder_runtime_secrets_outside_development() -> No
         )
 
 
+def test_settings_require_graphiti_api_key_when_graphiti_backend_enabled() -> None:
+    with pytest.raises(ValueError, match="GRAPHITI_API_KEY must be configured when MEMORY_BACKEND=graphiti"):
+        Settings(
+            _env_file=None,
+            app_env="development",
+            memory_backend="graphiti",
+            control_plane_internal_secret="test-control-plane-secret",
+            token_pepper="test-token-pepper",
+            graphiti_api_key="",
+        )
+
+
+def test_settings_accept_graphiti_api_key_when_graphiti_backend_enabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="development",
+        memory_backend="graphiti",
+        control_plane_internal_secret="test-control-plane-secret",
+        token_pepper="test-token-pepper",
+        graphiti_api_key="sk-test-graphiti",
+    )
+
+    assert settings.memory_backend == "graphiti"
+    assert settings.graphiti_api_key == "sk-test-graphiti"
+
+
 def test_settings_default_index_roots_fall_back_to_repo_root() -> None:
     settings = Settings(
         _env_file=None,
