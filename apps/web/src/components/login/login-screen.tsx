@@ -1,26 +1,25 @@
-import Link from "next/link";
-
 import { LoginActions } from "@/components/login-actions";
 
 type LoginScreenProps = {
   appUrl: string;
   hasSupabase: boolean;
+  marketingUrl: string;
 };
 
-export function LoginScreen({ appUrl, hasSupabase }: LoginScreenProps) {
+export function LoginScreen({ appUrl, hasSupabase, marketingUrl }: LoginScreenProps) {
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#0A0A0F] text-[#F1ECFF]">
       <div className="mx-auto flex h-[72px] w-full max-w-[1440px] items-center px-4 sm:px-6 lg:px-8">
-        <Link
+        <a
           aria-label="Go to homepage"
           className="flex items-center gap-2 rounded-md transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7A2DBE]/60"
-          href="/"
+          href={marketingUrl}
         >
           <span className="size-2 rounded-full bg-[#7A2DBE]" />
           <span className="font-[family:var(--font-mono)] text-xs font-semibold tracking-[0.22em] text-[#EAE5FF]">
             VIBERECALL
           </span>
-        </Link>
+        </a>
         <div className="ml-auto text-xs font-medium text-[#6F6790]">Secure access</div>
       </div>
 

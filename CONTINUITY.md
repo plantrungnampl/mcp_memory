@@ -44,6 +44,7 @@
 - On 2026-03-12, the landing-page SEO follow-up stayed scope-tight: strengthen `Organization` JSON-LD with the public GitHub repo as `sameAs`, and remove dead footer/legal affordances instead of creating placeholder public pages.
 - On 2026-03-13, the preferred public web host split was narrowed to `www.<domain>` for landing/SEO, `app.<domain>` for auth and dashboard flows, `docs.<domain>` for docs, and `api.<domain>` for the backend; the web env contract now needs a separate `NEXT_PUBLIC_MARKETING_URL`.
 - On 2026-03-13, host-aware redirects stayed inside the existing `apps/web` project: apex traffic should canonicalize to `www`, landing CTA links should target `app`, and `www` requests for `/login`, `/auth/*`, and `/projects/*` should redirect to the same path on `app`.
+- On 2026-03-13, the login-page header branding was intentionally split from the app-shell branding: clicking the `VIBERECALL` mark on `app.<domain>/login` should return to the marketing host, while app-shell/dashboard branding behavior stays unchanged for now.
 
 ## State
 - Backend validation for the current entity-resolution/unresolved-mention slice is green.
@@ -136,6 +137,7 @@
 - Added host-aware redirect logic in `apps/web/src/proxy.ts` plus unit coverage in `apps/web/src/proxy.test.ts` for apex-to-`www`, marketing-to-app app-surface redirects, and app-root-to-login redirects.
 - Switched landing CTA and docs links from relative `<Link>` navigation to absolute anchors targeting the canonical `app` and `docs` hosts, keeping the landing experience on `www`.
 - Verified `pnpm --dir apps/web test:unit`, `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, and `pnpm --dir apps/web build` after the `www`/`app` host split patch.
+- Updated the login screen header logo to target `publicEnv.marketingUrl` instead of the app root so `app.<domain>/login` can return users to the landing page without looping back through the app-root redirect.
 
 ## Now
 - Repository state is stable after the pre-deploy hardening pass and full release validation, with a new in-progress `www` vs `app` host split on the public web surface.

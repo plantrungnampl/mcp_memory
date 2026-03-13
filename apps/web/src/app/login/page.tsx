@@ -21,5 +21,11 @@ export const metadata: Metadata = {
 };
 
 export default function LoginPage() {
-  return <LoginScreen appUrl={publicEnv.appUrl} hasSupabase={publicEnv.hasSupabase} />;
+  return (
+    <LoginScreen
+      appUrl={publicEnv.appUrl}
+      hasSupabase={publicEnv.hasSupabase}
+      marketingUrl={publicEnv.marketingUrl}
+    />
+  );
 }
