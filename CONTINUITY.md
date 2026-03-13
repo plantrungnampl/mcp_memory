@@ -38,6 +38,7 @@
 - On 2026-03-12, the project ops dashboard payload gained a `generatedAt` snapshot so the `/projects/[projectId]/tokens` page can render relative token usage times against a stable server timestamp during SSR and hydration instead of calling `Date.now()` in the client component render path.
 - On 2026-03-12, the pre-deploy hardening pass for `Vercel web + DigitalOcean API` locked down remote git indexing by default, removed `memory:write` scope escalation into indexing/deletion, and made the web/server env contract explicit again.
 - On 2026-03-12, the web auth UI was narrowed from GitHub OAuth to Google OAuth while keeping the Supabase callback route, proxy/session refresh, and email magic-link path unchanged; external provider enablement now depends on Google + Supabase dashboard config rather than repo code.
+- On 2026-03-13, the Google OAuth login request was intentionally tightened to `prompt=select_account` so clicking `Continue with Google` always opens Google's account chooser instead of silently reusing the browser's active Google session.
 - On 2026-03-12, the web public-env module was corrected to read `NEXT_PUBLIC_*` values through direct `process.env` property access before export, because the prior generic `env = process.env` lookup prevented correct client-side inlining and broke Supabase login initialization in both local and hosted builds.
 - On 2026-03-12, the public SEO baseline was added across `apps/web` and `apps/docs`: the web app now uses App Router metadata, `robots.ts`, `sitemap.ts`, OG/Twitter image routes, landing-page JSON-LD, and `noindex` on login/internal control-plane routes; the docs app now uses real-origin env-based canonical config, explicit social assets, and page-level descriptions on the highest-intent docs pages.
 - On 2026-03-12, docs previews were explicitly narrowed to `noindex` surfaces: hosted preview builds should derive origin from `VERCEL_URL`, while only production builds may index and require `DOCUSAURUS_URL`.
@@ -138,6 +139,7 @@
 - Switched landing CTA and docs links from relative `<Link>` navigation to absolute anchors targeting the canonical `app` and `docs` hosts, keeping the landing experience on `www`.
 - Verified `pnpm --dir apps/web test:unit`, `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, and `pnpm --dir apps/web build` after the `www`/`app` host split patch.
 - Updated the login screen header logo to target `publicEnv.marketingUrl` instead of the app root so `app.<domain>/login` can return users to the landing page without looping back through the app-root redirect.
+- Updated the Google OAuth login request in `apps/web` to pass `queryParams.prompt = "select_account"` through Supabase so account switching is explicit on every sign-in attempt.
 
 ## Now
 - Repository state is stable after the pre-deploy hardening pass and full release validation, with a new in-progress `www` vs `app` host split on the public web surface.

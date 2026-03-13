@@ -63,6 +63,9 @@ export function LoginActions({ appUrl, enabled }: LoginActionsProps) {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
+          queryParams: {
+            prompt: "select_account",
+          },
           redirectTo: callbackUrl,
         },
       });
