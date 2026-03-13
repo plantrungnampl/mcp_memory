@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Brain, Github } from "lucide-react";
 
 import { GITHUB_REPO_URL } from "@/lib/seo";
@@ -33,7 +32,7 @@ export function LandingFooter() {
                 <div className="space-y-3.5">
                   {column.links.map((item) =>
                     item.href ? (
-                      <Link
+                      <a
                         key={`${column.title}-${item.label}`}
                         href={item.href}
                         className={cn("block text-[13px] text-[#6b6b70] transition-colors hover:text-[#adadb0]", styles.footerLink)}
@@ -41,7 +40,7 @@ export function LandingFooter() {
                         rel={item.href.startsWith("http") ? "noreferrer" : undefined}
                       >
                         {item.label}
-                      </Link>
+                      </a>
                     ) : null
                   )}
                 </div>
@@ -55,7 +54,7 @@ export function LandingFooter() {
         <div className="flex flex-col items-start justify-between gap-5 md:flex-row md:items-center">
           <p className="text-xs text-[#4a4a4e]">© 2026 VibeRecall. All rights reserved.</p>
           <div className="flex items-center gap-4 text-[#6b6b70]">
-            <Link
+            <a
               href={GITHUB_REPO_URL}
               aria-label="GitHub"
               className="transition-colors hover:text-[#adadb0]"
@@ -63,7 +62,7 @@ export function LandingFooter() {
               rel="noreferrer"
             >
               <Github className="size-[18px]" />
-            </Link>
+            </a>
           </div>
         </div>
       </div>

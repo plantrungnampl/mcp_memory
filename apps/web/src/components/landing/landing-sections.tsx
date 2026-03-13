@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   Award,
   CalendarClock,
@@ -14,7 +13,7 @@ import {
   Wind,
 } from "lucide-react";
 
-import { DOCS_QUICKSTART_PATH, getDocsUrl } from "@/lib/seo";
+import { DOCS_QUICKSTART_PATH, getAppUrl, getDocsUrl } from "@/lib/seo";
 import { cn } from "@/lib/utils";
 
 import { KnowledgeGraphPanel } from "./knowledge-graph-panel";
@@ -231,18 +230,18 @@ export function LandingSections() {
           </p>
 
           <div className="flex flex-col items-center gap-4 sm:flex-row">
-            <Link
-              href="/projects"
+            <a
+              href={getAppUrl("/projects")}
               className="inline-flex items-center rounded-xl bg-gradient-to-br from-[#7a2dbe] to-[#9333ea] px-8 py-4 text-base font-semibold text-white shadow-[0_12px_28px_-16px_rgba(122,45,190,1)]"
             >
               Get Started
-            </Link>
-            <Link
+            </a>
+            <a
               href={getDocsUrl(DOCS_QUICKSTART_PATH)}
               className="inline-flex items-center rounded-xl border border-[#2a2a2e] px-8 py-4 text-base font-medium text-[#adadb0] transition-colors hover:border-[#3a3a3f] hover:text-white"
             >
               Read Quickstart
-            </Link>
+            </a>
           </div>
 
           <p className="text-[13px] text-[#6b6b70]">No credit card required  ·  SOC2 Compliant  ·  Native MCP</p>

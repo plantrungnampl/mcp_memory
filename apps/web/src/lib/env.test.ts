@@ -8,6 +8,7 @@ test("resolvePublicEnv uses local defaults outside production", async () => {
     APP_ENV: "development",
   });
 
+  assert.equal(resolved.marketingUrl, "http://localhost:3000");
   assert.equal(resolved.appUrl, "http://localhost:3000");
   assert.equal(resolved.docsUrl, "http://localhost:3001");
   assert.equal(resolved.mcpBaseUrl, "http://localhost:8010");
@@ -20,8 +21,11 @@ test("resolvePublicEnv throws when required public urls are missing in productio
     () =>
       resolvePublicEnv({
         APP_ENV: "production",
+        NEXT_PUBLIC_APP_URL: "https://app.example.com",
+        NEXT_PUBLIC_DOCS_URL: "https://docs.example.com",
+        NEXT_PUBLIC_MCP_BASE_URL: "https://api.example.com",
       }),
-    /Missing required public environment variable: NEXT_PUBLIC_APP_URL/,
+    /Missing required public environment variable: NEXT_PUBLIC_MARKETING_URL/,
   );
 });
 

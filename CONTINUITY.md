@@ -42,6 +42,8 @@
 - On 2026-03-12, the public SEO baseline was added across `apps/web` and `apps/docs`: the web app now uses App Router metadata, `robots.ts`, `sitemap.ts`, OG/Twitter image routes, landing-page JSON-LD, and `noindex` on login/internal control-plane routes; the docs app now uses real-origin env-based canonical config, explicit social assets, and page-level descriptions on the highest-intent docs pages.
 - On 2026-03-12, docs previews were explicitly narrowed to `noindex` surfaces: hosted preview builds should derive origin from `VERCEL_URL`, while only production builds may index and require `DOCUSAURUS_URL`.
 - On 2026-03-12, the landing-page SEO follow-up stayed scope-tight: strengthen `Organization` JSON-LD with the public GitHub repo as `sameAs`, and remove dead footer/legal affordances instead of creating placeholder public pages.
+- On 2026-03-13, the preferred public web host split was narrowed to `www.<domain>` for landing/SEO, `app.<domain>` for auth and dashboard flows, `docs.<domain>` for docs, and `api.<domain>` for the backend; the web env contract now needs a separate `NEXT_PUBLIC_MARKETING_URL`.
+- On 2026-03-13, host-aware redirects stayed inside the existing `apps/web` project: apex traffic should canonicalize to `www`, landing CTA links should target `app`, and `www` requests for `/login`, `/auth/*`, and `/projects/*` should redirect to the same path on `app`.
 
 ## State
 - Backend validation for the current entity-resolution/unresolved-mention slice is green.
@@ -127,20 +129,29 @@
 - Replaced the web favicon with the square VibeRecall brain mark by adding `apps/web/src/app/icon.svg` and regenerating `apps/web/src/app/favicon.ico`.
 - Replaced the docs favicon asset in `apps/docs/static/img/favicon.svg` so docs and web now use the same square VibeRecall mark.
 - Verified `pnpm --dir apps/web build` and `pnpm --dir apps/docs build` after the favicon swap.
+- Aligned repo-tracked Graphiti/OpenAI defaults for local + production by switching `.env.production.example` to `MEMORY_BACKEND=graphiti`, documenting the direct OpenAI key requirement in `apps/mcp-api/README.md`, and adding fail-fast config validation when `GRAPHITI_API_KEY` is missing under Graphiti mode.
+- Verified `UV_CACHE_DIR=/tmp/uv-cache uv run --project apps/mcp-api pytest -q apps/mcp-api/tests/test_smoke.py apps/mcp-api/tests/test_graphiti_clients.py apps/mcp-api/tests/test_graphiti_adapter.py`.
+- Added `NEXT_PUBLIC_MARKETING_URL` to the web public-env contract and the hosted deployment runbooks so landing/SEO origin can differ from the app/auth origin.
+- Updated web SEO helpers, homepage metadata, `robots.ts`, and `sitemap.ts` so canonical marketing metadata now points at the marketing host instead of the app host.
+- Added host-aware redirect logic in `apps/web/src/proxy.ts` plus unit coverage in `apps/web/src/proxy.test.ts` for apex-to-`www`, marketing-to-app app-surface redirects, and app-root-to-login redirects.
+- Switched landing CTA and docs links from relative `<Link>` navigation to absolute anchors targeting the canonical `app` and `docs` hosts, keeping the landing experience on `www`.
+- Verified `pnpm --dir apps/web test:unit`, `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web lint`, and `pnpm --dir apps/web build` after the `www`/`app` host split patch.
 
 ## Now
-- Repository state is stable after the pre-deploy hardening pass and full release validation.
-- The current branch is ready for the chosen topology assumptions: `apps/web` on Vercel, backend runtime on a DigitalOcean Droplet, Redis/Celery enabled, and remote git indexing disabled by default.
-- Remaining work after this turn is mostly operational: redeploy the patched web build, confirm Supabase/Google OAuth provider config in the hosted project, provision/confirm production envs, and run deployed smoke/browser QA.
+- Repository state is stable after the pre-deploy hardening pass and full release validation, with a new in-progress `www` vs `app` host split on the public web surface.
+- The current branch is ready for the chosen topology assumptions: `www` as canonical landing host, `app` as canonical control-plane host, `docs` as the separate docs host, backend runtime on a DigitalOcean Droplet, Redis/Celery enabled, and remote git indexing disabled by default.
+- Remaining work after this turn is mostly operational: redeploy the patched web build, populate `NEXT_PUBLIC_MARKETING_URL` in the hosted web project, confirm Supabase/Google OAuth provider config against the `app` host, provision/confirm production envs, and run deployed smoke/browser QA.
 - Remaining SEO work after this turn is operational/content-focused: bind real production domains, submit sitemaps to Search Console, and decide whether to add more product-intent docs pages before any broader content-marketing expansion.
-- The current code changes for the SEO follow-up and favicon alignment are locally verified and ready to be reviewed/staged alongside the earlier SEO baseline files.
+- The current code changes for the SEO follow-up, favicon alignment, Graphiti/OpenAI env hardening, and the `www`/`app` host split are locally verified and ready to be reviewed/staged together.
 
 ## Next
-- Provision a separate Vercel project for `apps/docs` and bind `docs.<domain>` once a real production domain is chosen.
+- Keep `www`/root and `app` bound to the web Vercel project, while `docs.<domain>` remains a separate docs Vercel project.
 - Populate Vercel and Droplet production envs, then launch `ops/docker-compose.digitalocean.yml` behind Caddy.
+- Set `NEXT_PUBLIC_MARKETING_URL=https://www.<your-domain>` in the web Vercel project before the next production deployment.
 - Keep `APP_ENV=production` and `INDEX_REMOTE_GIT_ENABLED=false` explicit in production env configuration.
 - Redeploy `apps/web` anywhere the older broken client bundle was already built, then re-test `/login` before touching Supabase dashboard settings again.
 - Enable the Google auth provider in Supabase, configure Google Cloud OAuth client origins/redirects, and disable GitHub provider after Google sign-in is verified.
+- Align Vercel domain behavior so the apex host resolves to `www`, and keep `app` as the only login/dashboard origin in Supabase redirect configuration.
 - Run `pnpm smoke:mcp:deployed -- --base-url <deployed_api_base> --project-id <qa_project_id> --token <qa_plaintext_token>` once a real target is available.
 - Run authenticated browser QA for `/projects`, `/projects/[projectId]/tokens`, `/projects/[projectId]/api-logs`, `/projects/[projectId]/usage`, and `/projects/[projectId]/graphs/playground` on the deployed web app.
 - Run deployed browser QA for `https://docs.<your-domain>` and confirm `https://app.<your-domain>/docs` redirects there.
@@ -152,6 +163,7 @@
 - Decide whether the next public SEO/content sprint should add comparison/use-case docs pages or keep the current docs set stable for now.
 - Decide later whether to add real public `about/contact/privacy/terms` pages or keep the landing intentionally minimal.
 - Redeploy Vercel web/docs and verify the new favicon after a hard refresh, since browser favicon caching is often sticky.
+- Update the real Droplet `.env.production` to match the new Graphiti/OpenAI default shape, then redeploy the backend and confirm Graphiti sync succeeds with a real ingest flow.
 
 ## Open questions
 - UNCONFIRMED: which real production domains will back `app.<domain>`, `docs.<domain>`, and `api.<domain>` for the public rollout.

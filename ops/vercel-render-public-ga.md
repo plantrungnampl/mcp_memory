@@ -27,6 +27,7 @@ Create the control-plane Vercel project with these settings:
 Set these production env vars in Vercel:
 
 - `APP_ENV=production`
+- `NEXT_PUBLIC_MARKETING_URL=https://www.<your-domain>`
 - `NEXT_PUBLIC_APP_URL=https://app.<your-domain>`
 - `NEXT_PUBLIC_DOCS_URL=https://docs.<your-domain>`
 - `NEXT_PUBLIC_SUPABASE_URL=...`
@@ -42,6 +43,7 @@ Notes:
 
 - `NEXT_PUBLIC_*` values are baked in at build time; set them before the Vercel build starts.
 - `CONTROL_PLANE_API_BASE_URL` is the server-side control-plane origin for web requests and `/api/health`; do not leave it on an internal Docker hostname.
+- `NEXT_PUBLIC_MARKETING_URL` is the canonical landing/SEO origin; keep `NEXT_PUBLIC_APP_URL` reserved for auth and dashboard flows on `app.<your-domain>`.
 - Keep `DEPLOYMENT_VERSION` fixed per release so multi-instance rollouts preserve version skew protection.
 - Keep `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` stable across all instances of the same deployment.
 - Put a reverse proxy or platform edge in front of the Node runtime if you self-host outside Vercel.

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "node ./scripts/run-eslint.mjs",
-    "test:unit": "node --import tsx --test src/**/*.test.ts",
+    "test:unit": "node --import tsx --test src/*.test.ts src/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Brain } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -22,13 +21,13 @@ export function LandingHeader() {
 
         <nav className="hidden items-center gap-8 md:flex">
           {navItems.map((item) => (
-            <Link
+            <a
               key={item.label}
               href={item.href}
               className={cn("text-sm font-medium text-[#adadb0] transition-colors hover:text-white", styles.navLink)}
             >
               {item.label}
-            </Link>
+            </a>
           ))}
         </nav>
 

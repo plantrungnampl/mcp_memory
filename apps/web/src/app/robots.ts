@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-import { getAppUrl } from "@/lib/seo";
+import { getMarketingUrl } from "@/lib/seo";
 
 export default function robots(): MetadataRoute.Robots {
   return {
@@ -9,6 +9,6 @@ export default function robots(): MetadataRoute.Robots {
       allow: "/",
       disallow: ["/api/", "/auth/", "/projects", "/projects/"],
     },
-    sitemap: getAppUrl("/sitemap.xml"),
+    sitemap: getMarketingUrl("/sitemap.xml"),
   };
 }

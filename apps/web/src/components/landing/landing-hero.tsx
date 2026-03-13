@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { ArrowRight, BookOpen } from "lucide-react";
 
-import { publicEnv } from "@/lib/env";
+import { getAppUrl, getDocsUrl } from "@/lib/seo";
 import { cn } from "@/lib/utils";
 
 import styles from "./landing-page.module.css";
@@ -36,20 +35,20 @@ export function LandingHero() {
         </p>
 
         <div className="flex flex-col items-center gap-4 sm:flex-row">
-          <Link
-            href="/projects"
+          <a
+            href={getAppUrl("/projects")}
             className="inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-br from-[#7a2dbe] to-[#9333ea] px-8 py-4 text-base font-semibold text-white shadow-[0_12px_28px_-16px_rgba(122,45,190,1)] transition-opacity hover:opacity-95"
           >
             <ArrowRight className="size-5" />
             Get Started Free
-          </Link>
-          <Link
-            href={publicEnv.docsUrl}
+          </a>
+          <a
+            href={getDocsUrl("/")}
             className="inline-flex items-center gap-2.5 rounded-xl border border-[#2a2a2e] px-8 py-4 text-base font-medium text-[#adadb0] transition-colors hover:border-[#3a3a3f] hover:text-white"
           >
             <BookOpen className="size-5" />
             View Documentation
-          </Link>
+          </a>
         </div>
 
         <div className={cn("w-full max-w-[800px] overflow-hidden rounded-2xl border border-[#1f1f23] bg-[#111113]", styles.terminalGlow)}>

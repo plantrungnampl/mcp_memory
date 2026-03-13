@@ -1,4 +1,5 @@
 type PublicEnv = {
+  marketingUrl: string;
   appUrl: string;
   docsUrl: string;
   mcpBaseUrl: string;
@@ -12,6 +13,7 @@ type PublicEnvSource = Partial<
     NodeJS.ProcessEnv,
     | "APP_ENV"
     | "VERCEL_ENV"
+    | "NEXT_PUBLIC_MARKETING_URL"
     | "NEXT_PUBLIC_APP_URL"
     | "NEXT_PUBLIC_DOCS_URL"
     | "NEXT_PUBLIC_MCP_BASE_URL"
@@ -21,6 +23,7 @@ type PublicEnvSource = Partial<
 >;
 
 const LOCAL_PUBLIC_DEFAULTS = {
+  NEXT_PUBLIC_MARKETING_URL: "http://localhost:3000",
   NEXT_PUBLIC_APP_URL: "http://localhost:3000",
   NEXT_PUBLIC_DOCS_URL: "http://localhost:3001",
   NEXT_PUBLIC_MCP_BASE_URL: "http://localhost:8010",
@@ -48,6 +51,7 @@ function readPublicUrl(
 }
 
 export function resolvePublicEnv(env: PublicEnvSource): PublicEnv {
+  const marketingUrl = readPublicUrl(env, "NEXT_PUBLIC_MARKETING_URL");
   const appUrl = readPublicUrl(env, "NEXT_PUBLIC_APP_URL");
   const docsUrl = readPublicUrl(env, "NEXT_PUBLIC_DOCS_URL");
   const mcpBaseUrl = readPublicUrl(env, "NEXT_PUBLIC_MCP_BASE_URL");
@@ -55,6 +59,7 @@ export function resolvePublicEnv(env: PublicEnvSource): PublicEnv {
   const supabasePublishableKey = env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
 
   return {
+    marketingUrl,
     appUrl,
     docsUrl,
     mcpBaseUrl,
@@ -69,6 +74,7 @@ function readProcessPublicEnv(): PublicEnvSource {
   return {
     APP_ENV: process.env.APP_ENV,
     VERCEL_ENV: process.env.VERCEL_ENV,
+    NEXT_PUBLIC_MARKETING_URL: process.env.NEXT_PUBLIC_MARKETING_URL,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_DOCS_URL: process.env.NEXT_PUBLIC_DOCS_URL,
     NEXT_PUBLIC_MCP_BASE_URL: process.env.NEXT_PUBLIC_MCP_BASE_URL,

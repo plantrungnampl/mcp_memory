@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { publicEnv } from "@/lib/env";
+import { getAppUrl } from "@/lib/seo";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 type LandingAuthState = {
@@ -73,12 +73,12 @@ export function LandingAuthControls() {
   if (isSignedIn) {
     return (
       <div className="hidden items-center gap-3 md:flex">
-        <Link
-          href="/projects"
+        <a
+          href={getAppUrl("/projects")}
           className="rounded-lg bg-gradient-to-b from-[#7a2dbe] to-[#9333ea] px-6 py-2.5 text-sm font-semibold text-white shadow-[0_8px_22px_-12px_rgba(122,45,190,0.85)] transition-opacity hover:opacity-95"
         >
           Projects
-        </Link>
+        </a>
         <div className="flex items-center gap-2 rounded-full border border-white/12 bg-[#191925] px-2.5 py-1.5">
           <div className="flex size-6 items-center justify-center rounded-full border border-white/20 bg-[#7a2dbe]/35 text-xs font-semibold text-white">
             {getAvatarInitial(authState.email)}
@@ -91,18 +91,18 @@ export function LandingAuthControls() {
 
   return (
     <div className="hidden items-center gap-3 md:flex">
-      <Link
-        href="/login"
+      <a
+        href={getAppUrl("/login")}
         className="rounded-lg px-5 py-2.5 text-sm font-medium text-[#adadb0] transition-colors hover:text-white"
       >
         Sign In
-      </Link>
-      <Link
-        href="/projects"
+      </a>
+      <a
+        href={getAppUrl("/projects")}
         className="rounded-lg bg-gradient-to-b from-[#7a2dbe] to-[#9333ea] px-6 py-2.5 text-sm font-semibold text-white shadow-[0_8px_22px_-12px_rgba(122,45,190,0.85)] transition-opacity hover:opacity-95"
       >
         {authState.isLoading ? "Loading..." : "Get Started"}
-      </Link>
+      </a>
     </div>
   );
 }

@@ -19,6 +19,10 @@ export const MARKETING_KEYWORDS = [
 export const DOCS_QUICKSTART_PATH = "/getting-started/quickstart";
 export const GITHUB_REPO_URL = "https://github.com/plantrungnampl/mcp_memory";
 
+export function getMarketingUrl(path = "/"): string {
+  return new URL(path, publicEnv.marketingUrl).toString();
+}
+
 export function getAppUrl(path = "/"): string {
   return new URL(path, publicEnv.appUrl).toString();
 }
@@ -28,7 +32,7 @@ export function getDocsUrl(path = "/"): string {
 }
 
 export function getMetadataBase(): URL {
-  return new URL(publicEnv.appUrl);
+  return new URL(publicEnv.marketingUrl);
 }
 
 export function sanitizeJsonLd(value: unknown): string {

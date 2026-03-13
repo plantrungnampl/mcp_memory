@@ -8,7 +8,7 @@ import {
   MARKETING_DESCRIPTION,
   MARKETING_KEYWORDS,
   MARKETING_PAGE_TITLE,
-  getAppUrl,
+  getMarketingUrl,
   sanitizeJsonLd,
 } from "@/lib/seo";
 
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: MARKETING_PAGE_TITLE,
     description: MARKETING_DESCRIPTION,
-    url: getAppUrl("/"),
+    url: getMarketingUrl("/"),
     siteName: BRAND_NAME,
     locale: "en_US",
     type: "website",
@@ -55,8 +55,8 @@ export default function HomePage() {
       "@context": "https://schema.org",
       "@type": "Organization",
       name: BRAND_NAME,
-      url: getAppUrl("/"),
-      logo: getAppUrl("/favicon.ico"),
+      url: getMarketingUrl("/"),
+      logo: getMarketingUrl("/favicon.ico"),
       sameAs: [GITHUB_REPO_URL],
     },
     {
@@ -71,7 +71,7 @@ export default function HomePage() {
         priceCurrency: "USD",
       },
       description: MARKETING_DESCRIPTION,
-      url: getAppUrl("/"),
+      url: getMarketingUrl("/"),
     },
     {
       "@context": "https://schema.org",

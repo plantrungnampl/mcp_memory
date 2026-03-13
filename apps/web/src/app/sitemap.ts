@@ -1,11 +1,11 @@
 import type { MetadataRoute } from "next";
 
-import { getAppUrl } from "@/lib/seo";
+import { getMarketingUrl } from "@/lib/seo";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
-      url: getAppUrl("/"),
+      url: getMarketingUrl("/"),
       changeFrequency: "weekly",
       priority: 1,
     },
