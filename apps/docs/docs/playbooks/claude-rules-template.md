@@ -12,35 +12,52 @@ Use VibeRecall as the project memory system for this workspace.
 
 Connection rules:
 - Connect to https://api.<your-domain>/p/<project_id>/mcp with bearer token $VIBERECALL_TOKEN.
-- Prefer the remote HTTP MCP server as the primary integration path.
-- Treat tools as the required compatibility surface.
+- Prefer the remote HTTP MCP server as the primary compatibility path.
+- Treat tools as the required integration surface.
 - Treat prompts and resources as optional accelerators only.
-- Start each meaningful task by calling viberecall_get_status to verify the active project and runtime health.
+- Start every meaningful task with viberecall_get_status.
 
-Default workflow:
-- After viberecall_get_status succeeds, start meaningful tasks with viberecall_get_context_pack.
-- Inspect context_mode, index_status, and index_hint before assuming code context is available.
-- Use viberecall_search_entities only when the task is centered on a known entity.
+Startup rules:
+- After viberecall_get_status succeeds, call viberecall_get_context_pack with a concise task-shaped query.
+- Inspect status, context_mode, index_status, index_hint, and gaps before making any indexing decision.
+- Do not assume missing prompts or resources means the platform is unusable.
+
+Default retrieval rules:
+- Use viberecall_search_memory for concrete memory lookups.
+- Use viberecall_get_fact or viberecall_get_facts for fact inspection.
+- Use viberecall_search_entities only when the task is centered on a known entity or canonical concept.
 - Use viberecall_get_neighbors only after identifying the correct entity.
-- Save meaningful findings with viberecall_save_episode.
-- Check viberecall_get_index_status before triggering viberecall_index_repo.
+- Use viberecall_find_paths only when a bounded relationship path matters to the task.
+- Do not spam broad retrieval calls without refining the task.
 
-Safety rules:
-- Do not hide critical workflows behind prompts-only or resources-only flows.
-- Do not spam broad search calls without refining the task.
+Write rules:
+- Use viberecall_save_episode for durable conclusions only.
+- Save architecture notes, confirmed debugging findings, and reusable handoff notes.
+- Do not save speculative thoughts, repeated status updates, or every interim reading note.
+
+Indexing rules:
+- Call viberecall_get_index_status before viberecall_index_repo.
+- Do not trigger viberecall_index_repo unless the workflow is explicitly trusted and get_context_pack still indicates stale or missing code context.
 - Do not assume the hosted MCP server can inspect local uncommitted files directly.
-- For local dirty-worktree indexing, use a Git source or workspace bundle flow.
-- Do not trigger viberecall_index_repo unless the workflow is explicitly trusted and get_context_pack still indicates code context is stale or missing.
-- Reconnect the MCP server after stale-session errors.
-- Stop and ask the human if the active project, environment, token scope, or trust boundary is unclear.
-- Stop and ask the human if the task appears to require privileged maintenance tools that are not already explicitly approved.
+- For local unpublished code, require an explicit Git-reachable source, workspace-bundle flow, or local backend path.
+- If no explicit path exists, stop and ask the human.
 
-Correction rules:
+Correction and maintenance rules:
 - Use viberecall_explain_fact before viberecall_update_fact.
-- Do not use viberecall_update_fact unless fact correction is part of an explicitly trusted workflow.
-- Do not use privileged entity maintenance tools unless explicitly approved.
+- Do not use viberecall_update_fact unless fact correction is explicitly trusted for this workflow.
+- Do not use viberecall_merge_entities or viberecall_split_entity unless explicitly approved.
 
-Preferred daily-driver tools:
+Trust and escalation rules:
+- Stop and ask the human if the active project, environment, token scope, or trust boundary is unclear.
+- Stop and ask the human if a privileged tool appears necessary but has not been explicitly approved.
+- Stop and ask the human if local unpublished code might need to leave the machine.
+
+Failure-recovery rules:
+- Reconnect the MCP server after stale-session errors.
+- Re-run viberecall_get_status after reconnect before resuming normal retrieval.
+- Do not keep writing after auth or scope failures until the target and token are confirmed.
+
+Preferred daily-driver tool set:
 - viberecall_get_status
 - viberecall_get_context_pack
 - viberecall_search_memory
@@ -53,18 +70,30 @@ Preferred daily-driver tools:
 - viberecall_get_index_status
 ```
 
-## Why this template is intentionally small
+## Why this template stays strict
 
-Claude integrations can vary in how they surface optional MCP capabilities. A small rules file keeps the behavior stable even when prompts or resources are unavailable.
+Claude integrations can differ in how they expose optional MCP capabilities. A strict tools-first rules file is the safest way to keep behavior stable across those variations.
 
-For stricter teams, add repo-specific rules that define:
+This template intentionally avoids:
 
-- who may trigger indexing
+- prompt-only workflows
+- resource-only workflows
+- default indexing
+- default fact correction
+- default merge/split maintenance
+
+## Recommended repo-specific additions
+
+Only add repo-specific rules if they are concrete enough to enforce, such as:
+
+- exactly which tasks may trigger indexing
 - who may correct canonical facts
-- what the team considers a meaningful observation worth saving
+- what “meaningful observation” means in your repository
+- which environments are allowed for a given repo
 
 ## Related reading
 
 - [Claude Code Guide](/agent-guides/claude-code)
-- [Installation Profiles](/agent-guides/installation-profiles)
+- [Local Workspace Bridge](/agent-guides/local-workspace-bridge)
+- [MCP Tool Surface](/mcp-reference/tool-surface)
 - [Failure Recovery](/playbooks/failure-recovery)

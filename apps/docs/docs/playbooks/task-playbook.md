@@ -3,121 +3,194 @@ title: Task Playbook
 sidebar_position: 4
 ---
 
-Use this playbook when you want a repeatable operating pattern for coding agents. It is written to work with the current public tool surface and to avoid assumptions about optional prompts or resources.
+Use this playbook when you want a repeatable operating sequence for coding agents that use the current VibeRecall MCP tool surface.
 
-## Start of task
+This page is intentionally procedural. It tells the agent what to do, what not to do, and when to stop.
 
-Use this when a new task begins or the task direction changes materially.
-
-1. Call `viberecall_get_status`.
-2. Confirm the active project and runtime look correct.
-3. Call `viberecall_get_context_pack` with a concise task description.
-4. Inspect `context_mode`, `index_status`, and any `index_hint` or `gaps`.
-5. If the task is about a specific service, component, or entity, call `viberecall_search_entities`.
-6. If needed, call `viberecall_get_neighbors` for a bounded dependency view.
-
-Why:
-
-- this catches wrong-project, stale-session, or unhealthy-runtime issues early
-- this gives the agent broad context without flooding the runtime
-- it keeps graph exploration anchored on a known entity
-
-## During investigation
-
-Use this when the agent has identified a concrete finding.
-
-1. Save a meaningful observation with `viberecall_save_episode`.
-2. Use `viberecall_search_memory` only if the current context is missing a needed detail.
-
-Good observations include:
-
-- architecture notes
-- debugging discoveries
-- a confirmed dependency
-- a handoff summary worth reusing later
-
-Do not save:
-
-- repeated status updates
-- speculative thoughts with no signal
-- every interim code-reading note
-
-## Before a large refactor
-
-Use this when the task depends on code structure, dependency maps, or recent repository changes.
-
-1. Call `viberecall_get_index_status`.
-2. If `get_context_pack` is already `code_augmented` and the index is current, keep working.
-3. If `get_context_pack` is `memory_only` or `empty`, decide whether the current workflow is trusted to trigger indexing.
-4. If not explicitly trusted, stop and ask the human.
-5. If trusted, trigger `viberecall_index_repo`.
-6. Wait until the index becomes ready.
-7. Refresh task context with `viberecall_get_context_pack`.
-
-This avoids starting a refactor with stale code context and avoids silent privilege expansion.
-
-## When project or environment scope is unclear
+## 1. Start of task
 
 Use this when:
 
-- the token may belong to another project
-- the endpoint may point at the wrong environment
+- a new task begins
+- the task direction changes materially
+- the agent reconnects after a stale session
+
+Required sequence:
+
+1. Call `viberecall_get_status`.
+2. Verify the project and runtime match the task.
+3. Call `viberecall_get_context_pack` with a concise task-shaped query.
+4. Inspect `status`, `context_mode`, `index_status`, `index_hint`, and `gaps`.
+5. If the task is entity-centric, call `viberecall_search_entities`.
+6. Only if the correct entity is known, call `viberecall_get_neighbors` or `viberecall_find_paths`.
+
+Do not:
+
+- skip `viberecall_get_status`
+- begin with broad tool spam
+- call graph tools before you know which entity matters
+
+## 2. During investigation
+
+Use this when:
+
+- the agent has a concrete finding
+- the current context is missing one specific detail
+
+Required sequence:
+
+1. Keep working from the current task anchor.
+2. Call `viberecall_search_memory` only if the missing detail is memory-shaped.
+3. If the finding is durable and likely reusable, save it with `viberecall_save_episode`.
+
+Save only:
+
+- architecture conclusions
+- confirmed debugging discoveries
+- dependency or ownership findings that matter later
+- handoff notes worth future retrieval
+
+Do not save:
+
+- repeated progress updates
+- speculative theories
+- every code-reading note
+
+## 3. Before a large refactor or architecture-sensitive change
+
+Use this when:
+
+- the task depends on repository structure
+- the task depends on recent code movement
+- the current context looks stale or incomplete
+
+Required sequence:
+
+1. Call `viberecall_get_index_status`.
+2. If `get_context_pack` is already useful, keep working.
+3. If the context is still stale or missing, decide whether the workflow is explicitly trusted for indexing.
+4. If the workflow is not explicitly trusted, stop and ask the human.
+5. If the workflow is trusted, call `viberecall_index_repo`.
+6. Wait for readiness.
+7. Refresh with `viberecall_get_context_pack`.
+
+Do not:
+
+- index on every task
+- use indexing as a substitute for task scoping
+- turn a missing detail into silent privilege expansion
+
+## 4. When the task is entity-centric
+
+Use this when:
+
+- the task is about a named component, service, domain object, or canonical concept
+
+Required sequence:
+
+1. Call `viberecall_search_entities`.
+2. Choose the correct entity.
+3. Call `viberecall_get_neighbors` for bounded local context.
+4. Call `viberecall_find_paths` only if the task depends on a relationship between known entities.
+
+Do not:
+
+- call graph tools before entity selection
+- treat graph exploration as a default first step
+
+## 5. When correcting stale knowledge
+
+Use this when:
+
+- a fact appears wrong
+- a fact appears incomplete
+- the agent wants to change canonical memory
+
+Required sequence:
+
+1. Call `viberecall_explain_fact`.
+2. Review lineage and supporting episodes.
+3. Confirm that this workflow is explicitly trusted for fact correction.
+4. If not trusted, stop and ask the human.
+5. If trusted and justified, call `viberecall_update_fact`.
+
+Do not:
+
+- correct facts on first suspicion
+- skip provenance review
+- blur read access into canonical correction without explicit approval
+
+## 6. When the work depends on local unpublished code
+
+Use this when:
+
+- the task depends on uncommitted files
+- the task depends on code that only exists on the agent's machine
+
+Required sequence:
+
+1. Decide whether the backend can reach a Git source directly.
+2. If not, decide whether a workspace-bundle or local-backend path exists.
+3. If no explicit path exists, stop and ask the human.
+4. If a path exists and the workflow is trusted, use that path explicitly.
+5. Only then call `viberecall_index_repo`.
+
+Do not:
+
+- assume the hosted MCP server can inspect a local path directly
+- assume local unpublished code may leave the machine without explicit approval
+
+See [Local Workspace Bridge](/agent-guides/local-workspace-bridge).
+
+## 7. When project or environment scope is unclear
+
+Use this when:
+
+- the token may point at the wrong project
 - the runtime health looks inconsistent with the task
+- the environment may be wrong
+- the trust boundary is no longer obvious
+
+Required sequence:
 
 1. Stop broad tool usage.
 2. Re-run `viberecall_get_status`.
 3. If scope is still unclear, stop and ask the human.
 
-Do not continue by guessing. Scope confusion creates bad memory and bad corrections quickly.
+Do not continue by guessing.
 
-## When correcting stale knowledge
+## 8. After an important decision
 
-Use this when a stored fact appears wrong or incomplete.
+Use this when:
 
-1. Call `viberecall_explain_fact`.
-2. Inspect supporting episodes and lineage.
-3. Decide whether this workflow is explicitly trusted to correct canonical facts.
-4. If not explicitly trusted, stop and ask the human.
-5. If trusted and correction is justified, call `viberecall_update_fact`.
+- the task produces a durable decision
+- the task uncovers a high-signal debugging fact
+- the agent is about to hand off work
 
-Do not skip the explanation step. Correcting facts without reviewing provenance is how memory quality drifts.
+Required sequence:
 
-## When the task is entity-centric
+1. Save one concise `viberecall_save_episode` note.
+2. Include enough detail to reconnect the note to the task later.
 
-Use this when the problem is tied to a specific component, service, or canonical concept.
+This is the best time to capture signal without flooding memory.
 
-1. Call `viberecall_search_entities`.
-2. Pick the right entity.
-3. Call `viberecall_get_neighbors` or `viberecall_find_paths` as needed.
+## 9. Hard stop conditions
 
-Avoid calling graph tools before you know the relevant entity. That is a common source of noisy retrieval.
+The agent must stop and ask the human when:
 
-## When the work depends on local uncommitted code
-
-Use this when the repository state only exists locally.
-
-1. Decide whether Git-based indexing is possible.
-2. If not, decide whether a workspace bundle or bridge path exists.
-3. If no explicit path exists, stop and ask the human.
-4. If a path exists, prepare the bundle or bridge flow.
-5. Call `viberecall_index_repo` with `repo_source.type = "workspace_bundle"`.
-
-Do not assume the hosted MCP server can inspect the local repository path directly.
-
-## After an important decision
-
-When the task produces a durable conclusion:
-
-1. save a concise `viberecall_save_episode` note
-2. include enough metadata to reconnect the note to the task later
-
-This is the best moment to capture architecture decisions and debugging conclusions.
+- project identity is unclear
+- environment identity is unclear
+- token scope is unclear
+- the workflow may cross from read-only into privileged mutation
+- local unpublished code may need to leave the machine
+- a destructive tool appears necessary without explicit approval
 
 ## Anti-patterns
 
-- Tool spam instead of scoped retrieval.
-- Indexing on every task by default.
+- Starting with indexing.
+- Starting with graph traversal before entity selection.
 - Saving every intermediate thought.
 - Skipping `viberecall_explain_fact` before correction.
-- Assuming the hosted memory service can see local files.
-- Continuing when project, environment, or trust scope is unclear.
+- Assuming hosted MCP can read local paths.
+- Continuing after scope or trust becomes unclear.
+- Treating prompts or resources as required for important workflows.

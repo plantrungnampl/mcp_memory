@@ -90,6 +90,18 @@
 - The docs set now reflects the dual-mode `context_pack` behavior: public reference pages document `context_mode`, `index_status`, `index_hint`, and richer indexed architecture fields, while agent guides/playbooks describe the workflow as "inspect pack mode first, then decide whether indexing is worth it."
 
 ## Done
+- Rewrote the public AI-agent rules set under `apps/docs/docs/playbooks/` so `agent-rules-overview`, `codex-rules-template`, `claude-rules-template`, and `task-playbook` now use stricter policy language, clearer stop conditions, and less ambiguous MCP usage guidance.
+- Tightened the public docs rules around startup order, tool-selection order, indexing trust boundaries, local-workspace boundaries, privileged-tool gating, and stale-session recovery.
+- Verified `pnpm --dir apps/docs build` after the rules rewrite.
+- Added local-repo indexing support to the deployed smoke runner via `--index-local-repo-path`; it now packages a local workspace into a `workspace_bundle`, uploads it to `/p/{project_id}/index-bundles`, and uses the returned `bundle_ref` for the hosted `index` profile.
+- Verified `apps/mcp-api/tests/test_deployed_smoke_profiles.py` -> `12 passed, 1 warning` after adding the local-bundle index path and regression coverage.
+- Verified the new CLI surface exposes `--index-local-repo-path` in `smoke_deployed_mcp.py --help`.
+- Verified the hosted `index` path with a tiny local workspace bundle reaches real hosted queue acceptance on `api.viberecall.dev`: the run returned a real `bundle://...` source and `index_run_id`, then timed out while `get_index_status` remained `QUEUED`.
+- Verified the deployed MCP `ops` smoke profile against the real hosted endpoint `https://api.viberecall.dev` on sandbox project `proj_c4eb9e66f3a4460caf518006f924b5fd`; the run returned `ok: true` with `status: ok`, a real `operation_id`, and `operation_status: RUNNING`.
+- Verified the deployed MCP `graph` smoke profile against the same hosted sandbox project; the run returned `ok: true` with two resolved `entity_ids`, `search_entity_count: 2`, and `path_count: 0`.
+- Verified the deployed MCP `core` smoke profile against the real hosted endpoint `https://api.viberecall.dev` on sandbox project `proj_c4eb9e66f3a4460caf518006f924b5fd`; the run returned `ok: true` with a real `fact_group_id`, `fact_version_id`, and cleanup `deleted_episode_id`.
+- Confirmed the hosted `core` flow now works end to end for write/read/pin/update/delete on real infrastructure, not only on the local FalkorDB/Celery stack.
+- Observed an operational CLI caveat while running the real smoke: the documented `pnpm smoke:mcp:deployed -- --base-url ...` form forwards a literal `--` into `argparse` in this environment, so the reliable invocation path is the direct `uv run --project apps/mcp-api python apps/mcp-api/scripts/smoke_deployed_mcp.py ...` form until the wrapper/docs behavior is clarified.
 - Brought up `ops/docker-compose.runtime.yml` locally and verified real Redis/FalkorDB availability on `localhost:6379` and `localhost:6380`.
 - Reworked `apps/mcp-api/tests/test_runtime_e2e_celery.py` to use `httpx.AsyncClient + ASGITransport` plus direct asyncpg helpers for setup/assert/cleanup, so the local real-service runtime E2E no longer depends on sync `TestClient` loop behavior.
 - Hardened runtime cleanup for real-service tests: `FalkorDBGraphManager.close()` now clears its cached client after shutdown, and `runtime.reset_runtime_state()` now resets Redis-backed runtime stores without replacing the shared FalkorDB admin object.
@@ -187,6 +199,9 @@
 - Verified `pnpm --dir apps/docs build` after the docs sweep.
 
 ## Now
+- The public docs rules set is now stricter and more explicit for AI-agent operators, especially around startup flow, trust boundaries, local unpublished code, and privileged MCP usage.
+- Real hosted validation evidence now exists for the MCP `core`, `ops`, and `graph` smoke profiles on `api.viberecall.dev`, and the hosted `index` path now reaches `bundle upload -> index_run accepted -> status polling`; the remaining hosted gap is that `index` does not complete beyond `QUEUED`, plus the untouched `resolution` profile.
+- The current smoke runner logic is good on the hosted target, but the `pnpm smoke:mcp:deployed -- ...` wrapper invocation is not reliable in this shell environment because the literal `--` reaches `argparse`.
 - The current branch contains the MCP coverage-ladder hardening patch: shared tool matrix, staged deployed smoke profiles, and expanded optional runtime E2E coverage.
 - Local verification is now green for both the broad MCP regression suite and the real-service runtime E2E path, but they currently need to run as separate pytest invocations because mixed-process execution still contaminates async DB engine state across event loops.
 - The local runtime stack under `ops/docker-compose.runtime.yml` is up and sufficient for the dedicated `runtime_e2e_celery` validation path.
@@ -203,6 +218,9 @@
 - The current code changes for the SEO follow-up, favicon alignment, Graphiti/OpenAI env hardening, and the `www`/`app` host split are locally verified and ready to be reviewed/staged together.
 
 ## Next
+- Inspect why hosted `index` runs remain stuck in `QUEUED` after bundle upload and accepted `index_run_id`; likely next checks are worker availability, queue health, and whether the hosted backend is consuming index jobs.
+- Decide whether to stop at the current non-privileged hosted evidence (`core + ops + graph`) plus accepted-but-stalled hosted `index`, or provision the extra prerequisites needed for `resolution`.
+- Clarify or fix the documented `pnpm smoke:mcp:deployed -- ...` invocation so operators do not hit the extra-`--` argparse failure on real runs.
 - Keep `apps/mcp-api/tests/test_runtime_e2e_celery.py` isolated in CI/local commands until async DB engine lifecycle can be made safe across mixed sync/async pytest suites.
 - Run the staged deployed smoke against a real QA target with profile-specific tokens, especially `graph`, `index`, and `resolution`, once a dedicated smoke project/token set exists.
 - Use `pnpm test:backend:runtime` or the documented dedicated pytest command for local real-service validation; do not mix `test_runtime_e2e_celery.py` into a broader `RUN_RUNTIME_E2E_CELERY=1` run.
