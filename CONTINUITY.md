@@ -90,6 +90,7 @@
 - The docs set now reflects the dual-mode `context_pack` behavior: public reference pages document `context_mode`, `index_status`, `index_hint`, and richer indexed architecture fields, while agent guides/playbooks describe the workflow as "inspect pack mode first, then decide whether indexing is worth it."
 
 ## Done
+- Removed `viberecall_spec_md/` and `viberecall_v3_mcp_memory_graph_pkg/` from Git tracking while keeping the local directories, and added ignore rules so these spec/source bundles no longer appear in normal repo diffs.
 - Rewrote the public AI-agent rules set under `apps/docs/docs/playbooks/` so `agent-rules-overview`, `codex-rules-template`, `claude-rules-template`, and `task-playbook` now use stricter policy language, clearer stop conditions, and less ambiguous MCP usage guidance.
 - Tightened the public docs rules around startup order, tool-selection order, indexing trust boundaries, local-workspace boundaries, privileged-tool gating, and stale-session recovery.
 - Verified `pnpm --dir apps/docs build` after the rules rewrite.
@@ -199,6 +200,7 @@
 - Verified `pnpm --dir apps/docs build` after the docs sweep.
 
 ## Now
+- The repository no longer needs to carry the two large spec folders in version control; they are being treated as local-only reference material via `.gitignore`.
 - The public docs rules set is now stricter and more explicit for AI-agent operators, especially around startup flow, trust boundaries, local unpublished code, and privileged MCP usage.
 - Real hosted validation evidence now exists for the MCP `core`, `ops`, and `graph` smoke profiles on `api.viberecall.dev`, and the hosted `index` path now reaches `bundle upload -> index_run accepted -> status polling`; the remaining hosted gap is that `index` does not complete beyond `QUEUED`, plus the untouched `resolution` profile.
 - The current smoke runner logic is good on the hosted target, but the `pnpm smoke:mcp:deployed -- ...` wrapper invocation is not reliable in this shell environment because the literal `--` reaches `argparse`.
@@ -218,6 +220,7 @@
 - The current code changes for the SEO follow-up, favicon alignment, Graphiti/OpenAI env hardening, and the `www`/`app` host split are locally verified and ready to be reviewed/staged together.
 
 ## Next
+- Push the untracking change if the human wants the Git history update on `origin/main`.
 - Inspect why hosted `index` runs remain stuck in `QUEUED` after bundle upload and accepted `index_run_id`; likely next checks are worker availability, queue health, and whether the hosted backend is consuming index jobs.
 - Decide whether to stop at the current non-privileged hosted evidence (`core + ops + graph`) plus accepted-but-stalled hosted `index`, or provision the extra prerequisites needed for `resolution`.
 - Clarify or fix the documented `pnpm smoke:mcp:deployed -- ...` invocation so operators do not hit the extra-`--` argparse failure on real runs.
