@@ -246,7 +246,73 @@ pnpm smoke:mcp:deployed -- \
   --token <plaintext_mcp_token>
 ```
 
-This validates session initialization, auth, read-path tools, write-path tools, and cleanup on the deployed endpoint.
+By default this runs the `core` profile, which validates:
+
+- `viberecall_save_episode`
+- `viberecall_search_memory`
+- `viberecall_get_fact`
+- `viberecall_pin_memory`
+- `viberecall_working_memory_get`
+- `viberecall_working_memory_patch`
+- `viberecall_save`
+- `viberecall_search`
+- `viberecall_get_facts`
+- `viberecall_update_fact`
+- `viberecall_timeline`
+- `viberecall_delete_episode`
+
+Additional opt-in profiles are available:
+
+- `ops`
+  validates `viberecall_get_status` and `viberecall_get_operation`
+- `graph`
+  validates `viberecall_search_entities`, `viberecall_get_neighbors`, `viberecall_find_paths`, `viberecall_explain_fact`, and `viberecall_resolve_reference`
+- `index`
+  validates `viberecall_index_repo`, `viberecall_get_index_status`, `viberecall_index_status`, and `viberecall_get_context_pack`
+- `resolution`
+  validates `viberecall_merge_entities` and `viberecall_split_entity`
+
+Examples:
+
+```bash
+# core + ops with one shared token
+pnpm smoke:mcp:deployed -- \
+  --base-url https://api.example.com \
+  --project-id <project_id> \
+  --token <shared_token> \
+  --profile core \
+  --profile ops
+
+# graph with a dedicated token
+pnpm smoke:mcp:deployed -- \
+  --base-url https://api.example.com \
+  --project-id <project_id> \
+  --profile graph \
+  --graph-token <graph_token>
+
+# index only when remote indexing is enabled and a smoke repo is available
+pnpm smoke:mcp:deployed -- \
+  --base-url https://api.example.com \
+  --project-id <project_id> \
+  --profile index \
+  --index-token <index_token> \
+  --index-repo-url https://github.com/example/smoke-repo.git \
+  --index-ref main \
+  --index-repo-name smoke-repo
+
+# resolution requires a privileged token with resolution:write
+pnpm smoke:mcp:deployed -- \
+  --base-url https://api.example.com \
+  --project-id <project_id> \
+  --profile resolution \
+  --resolution-token <resolution_token>
+```
+
+Notes:
+
+- The smoke runner uses explicit token-to-profile mapping; if a profile token is not provided it falls back to `--token`.
+- `index` is intentionally gated and should only be used when `INDEX_REMOTE_GIT_ENABLED=true` on the target runtime.
+- `resolution` is intentionally destructive within the smoke project and should use a dedicated test project/token.
 
 ## Runtime integration tests (FalkorDB + Redis)
 
@@ -267,9 +333,19 @@ uv run celery -A viberecall_mcp.workers.celery_app worker -l warning -Q memory -
 # terminal 3: run opt-in e2e test
 RUN_RUNTIME_E2E_CELERY=1 MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=celery \
 uv run pytest tests/test_runtime_e2e_celery.py -q
+
+# or from the repo root
+pnpm test:backend:runtime
 ```
 
-If the test times out, verify Redis/FalkorDB availability and that the worker process is connected to the same broker/result backend.
+This file now contains two runtime E2E paths:
+
+- legacy save/search/update worker flow
+- canonical + ops roundtrip covering `save_episode`, `get_fact`, `search_memory`, `pin_memory`, `search_entities`, `resolve_reference`, `working_memory_*`, `get_status`, and `get_operation`
+
+Keep this suite as a dedicated pytest invocation. Mixing `test_runtime_e2e_celery.py` into a broader run with `RUN_RUNTIME_E2E_CELERY=1` still risks false-negative async engine cross-loop failures from earlier tests.
+
+If the tests time out, verify Redis/FalkorDB availability and that the worker process is connected to the same broker/result backend.
 
 ## Trigger inline-content migration
 

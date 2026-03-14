@@ -125,11 +125,14 @@ class FalkorDBGraphManager:
         # Different client versions expose different close methods.
         if hasattr(self._client, "aclose"):
             await self._client.aclose()  # type: ignore[reportUnknownMemberType]
+            self._client = None
             return
 
         connection: Any = getattr(self._client, "connection", None)
         if connection is not None and hasattr(connection, "aclose"):
             await connection.aclose()
+            self._client = None
             return
         if connection is not None and hasattr(connection, "close"):
             await connection.close()
+            self._client = None

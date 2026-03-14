@@ -720,6 +720,7 @@ async def handle_pin_memory(
             },
         )
 
+    await arguments["session"].commit()
     return root.build_output_envelope(
         request_id=request_id,
         ok=True,

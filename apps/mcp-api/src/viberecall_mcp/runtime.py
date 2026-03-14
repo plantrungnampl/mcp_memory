@@ -547,11 +547,27 @@ async def probe_runtime_dependencies() -> dict:
 
 async def reset_runtime_state() -> None:
     global _dependency_probe_cache
+    global _redis_idempotency_store
+    global _redis_rate_limiter
 
     if settings.memory_backend == "local":
         await _local_memory_core.reset()
     if settings.kv_backend == "local":
         await _local_idempotency_store.reset()
         await _local_rate_limiter.reset()
+
+    try:
+        await _falkordb_admin.close()
+    except Exception:  # noqa: BLE001
+        pass
     await _graphiti_upstream_bridge.close()
+    cached_redis_client = get_redis_client()
+    try:
+        await cached_redis_client.aclose()
+    except Exception:  # noqa: BLE001
+        pass
+    get_redis_client.cache_clear()
+
+    _redis_idempotency_store = RedisIdempotencyStore(get_redis_client())
+    _redis_rate_limiter = RedisRateLimiter(get_redis_client())
     _dependency_probe_cache = None

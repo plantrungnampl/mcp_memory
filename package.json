@@ -10,6 +10,7 @@
     "build:web": "pnpm --dir apps/web build",
     "lint:web": "pnpm --dir apps/web lint",
     "test:backend": "UV_CACHE_DIR=/tmp/uv-cache uv run --project apps/mcp-api pytest -q apps/mcp-api/tests",
+    "test:backend:runtime": "RUN_RUNTIME_E2E_CELERY=1 MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=celery UV_CACHE_DIR=/tmp/uv-cache uv run --project apps/mcp-api pytest -q apps/mcp-api/tests/test_runtime_e2e_celery.py apps/mcp-api/tests/test_runtime_backends.py",
     "smoke:mcp:deployed": "uv run --project apps/mcp-api python apps/mcp-api/scripts/smoke_deployed_mcp.py",
     "validate:docs": "pnpm build:docs",
     "validate:web": "pnpm --dir apps/web typecheck && pnpm --dir apps/web lint && pnpm --dir apps/web build",

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import text
 
+from viberecall_mcp import canonical_memory
 from viberecall_mcp import code_index
 from viberecall_mcp.db import SessionLocal
 from viberecall_mcp.ids import new_id
@@ -207,6 +208,183 @@ async def test_celery_task_queue_uses_delay_result_ids(monkeypatch) -> None:
     assert purge_job_id == "celery-purge-1"
     assert migrate_job_id == "celery-migrate-1"
     assert index_job_id == "celery-index-1"
+
+
+async def test_pin_canonical_memory_retries_fact_lookup_as_group_id(monkeypatch) -> None:
+    calls: list[tuple[str | None, str | None]] = []
+
+    async def fake_get_current_fact_by_version_or_group(
+        session,
+        *,
+        project_id: str,
+        fact_version_id: str | None = None,
+        fact_group_id: str | None = None,
+    ) -> dict | None:
+        _ = (session, project_id)
+        calls.append((fact_version_id, fact_group_id))
+        if fact_group_id == "factgrp_target" and fact_version_id is None:
+            return {
+                "fact_version_id": "factv_current",
+                "fact_group_id": "factgrp_target",
+                "statement": "Pinned fact",
+                "valid_from": None,
+                "valid_to": None,
+                "metadata": {},
+                "salience_score": 0.5,
+                "salience_class": "WARM",
+                "subject_entity_id": "ent_subject",
+                "created_from_episode_id": "ep_123",
+            }
+        return None
+
+    async def fake_update_fact_version_salience(
+        session,
+        *,
+        project_id: str,
+        fact_version_id: str,
+        salience_score: float,
+        salience_class: str,
+        metadata_json: dict,
+    ) -> dict | None:
+        _ = session
+        assert project_id == "proj_test"
+        assert fact_version_id == "factv_current"
+        assert salience_score == 1.0
+        assert salience_class == "PINNED"
+        assert metadata_json["manual_salience"]["override_active"] is True
+        return {
+            "fact_version_id": "factv_current",
+            "fact_group_id": "factgrp_target",
+            "statement": "Pinned fact",
+            "valid_from": None,
+            "valid_to": None,
+            "metadata": metadata_json,
+            "salience_score": salience_score,
+            "salience_class": salience_class,
+            "subject_entity_id": "ent_subject",
+            "created_from_episode_id": "ep_123",
+        }
+
+    async def fake_sync_fact_search_doc(*args, **kwargs) -> None:
+        _ = (args, kwargs)
+
+    async def fake_ensure_projection_watermark(*args, **kwargs) -> None:
+        _ = (args, kwargs)
+
+    monkeypatch.setattr(
+        canonical_memory,
+        "get_current_fact_by_version_or_group",
+        fake_get_current_fact_by_version_or_group,
+    )
+    monkeypatch.setattr(
+        canonical_memory,
+        "update_fact_version_salience",
+        fake_update_fact_version_salience,
+    )
+    monkeypatch.setattr(canonical_memory, "_sync_fact_search_doc", fake_sync_fact_search_doc)
+    monkeypatch.setattr(canonical_memory, "ensure_projection_watermark", fake_ensure_projection_watermark)
+
+    result = await canonical_memory.pin_canonical_memory(
+        SimpleNamespace(),
+        project_id="proj_test",
+        target_kind="FACT",
+        target_id="factgrp_target",
+        pin_action="PIN",
+        reason=None,
+    )
+
+    assert calls == [("factgrp_target", None), (None, "factgrp_target")]
+    assert result is not None
+    assert result["resolved_target"]["fact_group_id"] == "factgrp_target"
+    assert result["resolved_target"]["fact_version_id"] == "factv_current"
+    assert result["salience_state"]["salience_class"] == "PINNED"
+
+
+async def test_pin_canonical_memory_accepts_fact_version_id_without_group_fallback(monkeypatch) -> None:
+    calls: list[tuple[str | None, str | None]] = []
+
+    async def fake_get_current_fact_by_version_or_group(
+        session,
+        *,
+        project_id: str,
+        fact_version_id: str | None = None,
+        fact_group_id: str | None = None,
+    ) -> dict | None:
+        _ = (session, project_id)
+        calls.append((fact_version_id, fact_group_id))
+        if fact_version_id == "factv_target" and fact_group_id is None:
+            return {
+                "fact_version_id": "factv_target",
+                "fact_group_id": "factgrp_current",
+                "statement": "Pinned fact",
+                "valid_from": None,
+                "valid_to": None,
+                "metadata": {},
+                "salience_score": 0.5,
+                "salience_class": "WARM",
+                "subject_entity_id": "ent_subject",
+                "created_from_episode_id": "ep_123",
+            }
+        return None
+
+    async def fake_update_fact_version_salience(
+        session,
+        *,
+        project_id: str,
+        fact_version_id: str,
+        salience_score: float,
+        salience_class: str,
+        metadata_json: dict,
+    ) -> dict | None:
+        _ = (session, project_id, metadata_json)
+        assert fact_version_id == "factv_target"
+        assert salience_score == 1.0
+        assert salience_class == "PINNED"
+        return {
+            "fact_version_id": "factv_target",
+            "fact_group_id": "factgrp_current",
+            "statement": "Pinned fact",
+            "valid_from": None,
+            "valid_to": None,
+            "metadata": metadata_json,
+            "salience_score": salience_score,
+            "salience_class": salience_class,
+            "subject_entity_id": "ent_subject",
+            "created_from_episode_id": "ep_123",
+        }
+
+    async def fake_sync_fact_search_doc(*args, **kwargs) -> None:
+        _ = (args, kwargs)
+
+    async def fake_ensure_projection_watermark(*args, **kwargs) -> None:
+        _ = (args, kwargs)
+
+    monkeypatch.setattr(
+        canonical_memory,
+        "get_current_fact_by_version_or_group",
+        fake_get_current_fact_by_version_or_group,
+    )
+    monkeypatch.setattr(
+        canonical_memory,
+        "update_fact_version_salience",
+        fake_update_fact_version_salience,
+    )
+    monkeypatch.setattr(canonical_memory, "_sync_fact_search_doc", fake_sync_fact_search_doc)
+    monkeypatch.setattr(canonical_memory, "ensure_projection_watermark", fake_ensure_projection_watermark)
+
+    result = await canonical_memory.pin_canonical_memory(
+        SimpleNamespace(),
+        project_id="proj_test",
+        target_kind="FACT",
+        target_id="factv_target",
+        pin_action="PIN",
+        reason=None,
+    )
+
+    assert calls == [("factv_target", None)]
+    assert result is not None
+    assert result["resolved_target"]["fact_group_id"] == "factgrp_current"
+    assert result["resolved_target"]["fact_version_id"] == "factv_target"
 
 
 def test_celery_app_registers_ingest_task_for_worker_boot() -> None:

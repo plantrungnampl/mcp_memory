@@ -16,6 +16,9 @@
 - Public docs must remain a separate static site; `apps/web` should only keep `/docs` as a compatibility redirect.
 
 ## Key decisions
+- On 2026-03-14, the local real-service runtime validation path was tightened to run `apps/mcp-api/tests/test_runtime_e2e_celery.py` in its own pytest process. Mixing that file into the broader MCP pytest process still causes false-negative async DB engine cross-loop failures from earlier tests.
+- On 2026-03-14, the `viberecall_pin_memory` runtime defect was traced to `canonical_memory.pin_canonical_memory(...)` passing the same `target_id` as both `fact_version_id` and `fact_group_id` into `get_current_fact_by_version_or_group(...)`, which makes the repo helper self-filter via `AND`; the safe fix is to resolve by version id first and fall back to group id, without changing the repo helper contract.
+- On 2026-03-14, MCP validation work was narrowed to a coverage-ladder hardening pass: keep existing transport/harness tests, add a shared 25-tool validation matrix, make deployed smoke profile-based (`core`, `ops`, `graph`, `index`, `resolution`), and extend optional runtime E2E only where it can reuse the existing Celery/FalkorDB stack safely.
 - On 2026-03-13, local Codex skill discovery for this machine was aligned with the upstream `obra/superpowers` native install flow: clone to `~/.codex/superpowers`, expose skills via `~/.agents/skills/superpowers`, and do not use any legacy `superpowers-codex bootstrap` block.
 - On 2026-03-13, the VibeRecall MCP write path was verified from Codex by saving a low-importance test episode into the active project memory; this is operational validation only, not a product-scope change.
 - On 2026-03-11, the current spec-v3 entity-resolution pass was closed as a docs/contract/rollout-alignment pass, not a new backend feature slice.
@@ -55,6 +58,9 @@
 - On 2026-03-13, public docs for `viberecall_get_context_pack` were aligned to the new dual-mode contract: MCP reference and backend README now document `code_augmented` versus `memory_only` behavior explicitly, while guides/playbooks were tightened to treat indexing as a manual follow-up only when broad context still lacks needed code structure.
 
 ## State
+- The backend test/tooling surface now has a shared source of truth for MCP validation coverage and smoke-profile ownership across all 25 public tools.
+- The deployed MCP smoke runner no longer assumes one monolithic core flow; it now supports staged profile execution with explicit token and prerequisite gating for graph, index, and resolution paths.
+- Optional runtime E2E coverage now extends beyond legacy save/update worker flow into canonical + ops roundtrips, but still requires Redis + FalkorDB + Celery to be available locally.
 - Backend validation for the current entity-resolution/unresolved-mention slice is green.
 - Backend validation for the new `context_pack` dual-mode retrieval contract is green: MCP indexing tests and MCP transport tests pass after adding memory-only fallback and richer indexed architecture fields.
 - Live Supabase schema and migration history are aligned for `016_pin_memory_salience`, `017_entity_resolution_foundation`, and `018_unresolved_mentions_identity`.
@@ -84,6 +90,22 @@
 - The docs set now reflects the dual-mode `context_pack` behavior: public reference pages document `context_mode`, `index_status`, `index_hint`, and richer indexed architecture fields, while agent guides/playbooks describe the workflow as "inspect pack mode first, then decide whether indexing is worth it."
 
 ## Done
+- Brought up `ops/docker-compose.runtime.yml` locally and verified real Redis/FalkorDB availability on `localhost:6379` and `localhost:6380`.
+- Reworked `apps/mcp-api/tests/test_runtime_e2e_celery.py` to use `httpx.AsyncClient + ASGITransport` plus direct asyncpg helpers for setup/assert/cleanup, so the local real-service runtime E2E no longer depends on sync `TestClient` loop behavior.
+- Hardened runtime cleanup for real-service tests: `FalkorDBGraphManager.close()` now clears its cached client after shutdown, and `runtime.reset_runtime_state()` now resets Redis-backed runtime stores without replacing the shared FalkorDB admin object.
+- Verified dedicated real-service runtime validation with `RUN_RUNTIME_E2E_CELERY=1 MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=celery UV_CACHE_DIR=/tmp/uv-cache uv run --project apps/mcp-api pytest -q apps/mcp-api/tests/test_runtime_e2e_celery.py apps/mcp-api/tests/test_runtime_backends.py` -> `15 passed, 1 warning`.
+- Verified the broad MCP regression separately with `UV_CACHE_DIR=/tmp/uv-cache uv run --project apps/mcp-api pytest -q apps/mcp-api/tests/test_mcp_validation_matrix.py apps/mcp-api/tests/test_deployed_smoke_profiles.py apps/mcp-api/tests/test_smoke.py apps/mcp-api/tests/test_mcp_transport.py apps/mcp-api/tests/test_mcp_memory.py apps/mcp-api/tests/test_mcp_graph.py apps/mcp-api/tests/test_mcp_indexing.py apps/mcp-api/tests/test_runtime_backends.py` -> `101 passed, 1 warning`.
+- Added `apps/mcp-api/src/viberecall_mcp/tool_validation_matrix.py` plus regression tests so scenario groups, smoke profiles, and required scopes are locked against the 25-tool public registry.
+- Refactored deployed smoke logic into `apps/mcp-api/src/viberecall_mcp/deployed_smoke.py` and kept `apps/mcp-api/scripts/smoke_deployed_mcp.py` as a thin wrapper, preserving the existing command while adding staged profiles and explicit token gating.
+- Added regression coverage for deployed-smoke profile resolution and prerequisite handling in `apps/mcp-api/tests/test_deployed_smoke_profiles.py`.
+- Added focused regression coverage for `pin_canonical_memory` FACT target resolution in `apps/mcp-api/tests/test_runtime_backends.py`, proving group-id fallback and version-id direct resolution separately.
+- Extended `apps/mcp-api/tests/test_runtime_e2e_celery.py` with a second opt-in real-service roundtrip for canonical + ops tools and widened the helper token scopes needed for that runtime path.
+- Re-enabled `viberecall_pin_memory` in the real-service canonical + ops runtime roundtrip and verified the live FalkorDB/Celery path now persists `PINNED` salience through `get_fact` after `save_episode`.
+- Fixed `apps/mcp-api/src/viberecall_mcp/canonical_memory.py` so `pin_canonical_memory(FACT)` resolves `fact_version_id` first and only falls back to `fact_group_id` when needed, matching the public contract implied by `save_episode`, harness tests, and deployed smoke.
+- Fixed `apps/mcp-api/src/viberecall_mcp/_tool_handlers_memory.py` so successful `viberecall_pin_memory` commits explicitly instead of relying on the later audit-log write path to flush the transaction.
+- Strengthened `apps/mcp-api/src/viberecall_mcp/deployed_smoke.py` core profile to re-read `get_fact` after `pin_memory` and assert the pinned salience state, then added a unit test for that smoke flow in `apps/mcp-api/tests/test_deployed_smoke_profiles.py`.
+- Added root script `pnpm test:backend:runtime` and updated `README.md` plus `apps/mcp-api/README.md` so the real-service runtime suite is documented as a dedicated invocation rather than an implicit mixed pytest run.
+- Updated `README.md` and `apps/mcp-api/README.md` to document the new smoke profiles, token requirements, and the expanded runtime E2E scope.
 - Fetched the current upstream `https://raw.githubusercontent.com/obra/superpowers/refs/heads/main/.codex/INSTALL.md`, confirmed the native-skill instructions, cloned `obra/superpowers` into `/home/theshy/.codex/superpowers`, and created the `/home/theshy/.agents/skills/superpowers` symlink target.
 - Verified `viberecall_get_status` returns `ok` for active project `proj_74bda648c86141caaf72416f6ed32bd6` with Graphiti enabled and ready.
 - Verified `viberecall_save_episode` accepted a Codex-origin write-test note and created episode `ep_2c262f688a6b492bbaae27d5aa0d4ae8` with operation `op_6b859d9c838f424c83b242f394e42b16`.
@@ -165,6 +187,10 @@
 - Verified `pnpm --dir apps/docs build` after the docs sweep.
 
 ## Now
+- The current branch contains the MCP coverage-ladder hardening patch: shared tool matrix, staged deployed smoke profiles, and expanded optional runtime E2E coverage.
+- Local verification is now green for both the broad MCP regression suite and the real-service runtime E2E path, but they currently need to run as separate pytest invocations because mixed-process execution still contaminates async DB engine state across event loops.
+- The local runtime stack under `ops/docker-compose.runtime.yml` is up and sufficient for the dedicated `runtime_e2e_celery` validation path.
+- `viberecall_pin_memory` no longer reproduces the FACT-target runtime bug on the local FalkorDB/Celery path; the remaining runtime caveat is still process isolation for `test_runtime_e2e_celery.py`.
 - The local machine now has the upstream `superpowers` native skill install in place, but the current Codex process still needs a restart before newly discovered skills can be used in-session.
 - VibeRecall MCP read/write connectivity is confirmed for active project `proj_74bda648c86141caaf72416f6ed32bd6` from this Codex session; episode `ep_2c262f688a6b492bbaae27d5aa0d4ae8` is visible in timeline and searchable, while async enrichment for operation `op_6b859d9c838f424c83b242f394e42b16` remained `PENDING` as of `2026-03-13T13:23:43Z`.
 - Repository state is stable after the pre-deploy hardening pass and full release validation, with a new in-progress `www` vs `app` host split on the public web surface.
@@ -177,6 +203,9 @@
 - The current code changes for the SEO follow-up, favicon alignment, Graphiti/OpenAI env hardening, and the `www`/`app` host split are locally verified and ready to be reviewed/staged together.
 
 ## Next
+- Keep `apps/mcp-api/tests/test_runtime_e2e_celery.py` isolated in CI/local commands until async DB engine lifecycle can be made safe across mixed sync/async pytest suites.
+- Run the staged deployed smoke against a real QA target with profile-specific tokens, especially `graph`, `index`, and `resolution`, once a dedicated smoke project/token set exists.
+- Use `pnpm test:backend:runtime` or the documented dedicated pytest command for local real-service validation; do not mix `test_runtime_e2e_celery.py` into a broader `RUN_RUNTIME_E2E_CELERY=1` run.
 - Restart the Codex CLI so native skill discovery picks up `/home/theshy/.agents/skills/superpowers`.
 - Reuse `viberecall_save_episode` for meaningful architecture or rollout observations instead of relying on `CONTINUITY.md` alone as the memory sink.
 - Keep `www`/root and `app` bound to the web Vercel project, while `docs.<domain>` remains a separate docs Vercel project.

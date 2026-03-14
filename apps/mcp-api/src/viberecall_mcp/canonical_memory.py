@@ -1235,8 +1235,13 @@ async def pin_canonical_memory(
             session,
             project_id=project_id,
             fact_version_id=target_id,
-            fact_group_id=target_id,
         )
+        if fact is None:
+            fact = await get_current_fact_by_version_or_group(
+                session,
+                project_id=project_id,
+                fact_group_id=target_id,
+            )
         if fact is None:
             return None
         next_score, next_class, next_metadata = _apply_pin_action(

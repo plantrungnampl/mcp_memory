@@ -265,6 +265,8 @@ What they do:
   runs `typecheck`, `lint`, and `build` for `apps/web`
 - `pnpm test:backend`
   runs the backend test suite from `apps/mcp-api/tests`
+- `pnpm test:backend:runtime`
+  runs the opt-in real-service runtime validation path against `test_runtime_e2e_celery.py` and `test_runtime_backends.py`
 - `pnpm validate:release`
   runs docs, web, and backend validation gates
 
@@ -275,6 +277,8 @@ cd apps/mcp-api
 RUN_RUNTIME_INTEGRATION=1 uv run pytest tests/test_runtime_integration.py -q
 RUN_RUNTIME_E2E_CELERY=1 MEMORY_BACKEND=falkordb KV_BACKEND=redis QUEUE_BACKEND=celery uv run pytest tests/test_runtime_e2e_celery.py -q
 ```
+
+Keep `test_runtime_e2e_celery.py` as a dedicated invocation. Mixing it into a broader pytest run with `RUN_RUNTIME_E2E_CELERY=1` still risks false-negative async engine cross-loop failures from earlier tests.
 
 ## Deployment
 
@@ -311,6 +315,23 @@ Deployed MCP smoke:
 
 ```bash
 pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <project_id> --token <plaintext_mcp_token>
+```
+
+The deployed smoke runner now supports staged profiles:
+
+- `core` by default for safe memory/canonical coverage
+- `ops` for `get_status` and `get_operation`
+- `graph` for entity/path/explanation flows
+- `index` for indexing/context-pack flows when remote indexing is enabled
+- `resolution` for privileged merge/split flows in a dedicated smoke project
+
+Examples:
+
+```bash
+pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <project_id> --token <shared_token> --profile core --profile ops
+pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <project_id> --profile graph --graph-token <graph_token>
+pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <project_id> --profile index --index-token <index_token> --index-repo-url https://github.com/example/smoke-repo.git --index-ref main --index-repo-name smoke-repo
+pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <project_id> --profile resolution --resolution-token <resolution_token>
 ```
 
 For the complete rollout sequence, see:
