@@ -16,6 +16,7 @@
 - Public docs must remain a separate static site; `apps/web` should only keep `/docs` as a compatibility redirect.
 
 ## Key decisions
+- On 2026-03-14, the `/projects` active-project reset bug was narrowed to `apps/web` client selection logic: `ProjectsWorkspaceNav` wrote `projects[0]` into `localStorage` on the directory route before stored-project restoration ran, so clicking back to `Projects` could replace the previously selected project with the first row. The smallest safe fix is to separate explicit selection from fallback selection, preserve `?project=` in the `Projects` nav href, and guard directory-route persistence until query restoration has resolved.
 - On 2026-03-14, the local real-service runtime validation path was tightened to run `apps/mcp-api/tests/test_runtime_e2e_celery.py` in its own pytest process. Mixing that file into the broader MCP pytest process still causes false-negative async DB engine cross-loop failures from earlier tests.
 - On 2026-03-14, the `viberecall_pin_memory` runtime defect was traced to `canonical_memory.pin_canonical_memory(...)` passing the same `target_id` as both `fact_version_id` and `fact_group_id` into `get_current_fact_by_version_or_group(...)`, which makes the repo helper self-filter via `AND`; the safe fix is to resolve by version id first and fall back to group id, without changing the repo helper contract.
 - On 2026-03-14, MCP validation work was narrowed to a coverage-ladder hardening pass: keep existing transport/harness tests, add a shared 25-tool validation matrix, make deployed smoke profile-based (`core`, `ops`, `graph`, `index`, `resolution`), and extend optional runtime E2E only where it can reuse the existing Celery/FalkorDB stack safely.
@@ -90,6 +91,9 @@
 - The docs set now reflects the dual-mode `context_pack` behavior: public reference pages document `context_mode`, `index_status`, `index_hint`, and richer indexed architecture fields, while agent guides/playbooks describe the workflow as "inspect pack mode first, then decide whether indexing is worth it."
 
 ## Done
+- Fixed the web active-project selection bug so returning from `/projects/[projectId]/tokens` to `Projects` keeps the current project instead of resetting to the first project.
+- Added a pure project-selection helper regression surface in `apps/web/src/components/projects/project-selection.ts` and covered directory/query/storage precedence with `apps/web/src/project-selection.test.ts`.
+- Verified `pnpm --dir apps/web test:unit`, `pnpm --dir apps/web typecheck`, and `pnpm --dir apps/web build` after the active-project selection patch.
 - Removed `viberecall_spec_md/` and `viberecall_v3_mcp_memory_graph_pkg/` from Git tracking while keeping the local directories, and added ignore rules so these spec/source bundles no longer appear in normal repo diffs.
 - Rewrote the public AI-agent rules set under `apps/docs/docs/playbooks/` so `agent-rules-overview`, `codex-rules-template`, `claude-rules-template`, and `task-playbook` now use stricter policy language, clearer stop conditions, and less ambiguous MCP usage guidance.
 - Tightened the public docs rules around startup order, tool-selection order, indexing trust boundaries, local-workspace boundaries, privileged-tool gating, and stale-session recovery.
@@ -200,6 +204,7 @@
 - Verified `pnpm --dir apps/docs build` after the docs sweep.
 
 ## Now
+- The web app now preserves the selected project when navigating back to the `Projects` directory by carrying the effective project id through `?project=` and by restoring stored selection before any directory-route fallback can overwrite it.
 - The repository no longer needs to carry the two large spec folders in version control; they are being treated as local-only reference material via `.gitignore`.
 - The public docs rules set is now stricter and more explicit for AI-agent operators, especially around startup flow, trust boundaries, local unpublished code, and privileged MCP usage.
 - Real hosted validation evidence now exists for the MCP `core`, `ops`, and `graph` smoke profiles on `api.viberecall.dev`, and the hosted `index` path now reaches `bundle upload -> index_run accepted -> status polling`; the remaining hosted gap is that `index` does not complete beyond `QUEUED`, plus the untouched `resolution` profile.
@@ -220,6 +225,7 @@
 - The current code changes for the SEO follow-up, favicon alignment, Graphiti/OpenAI env hardening, and the `www`/`app` host split are locally verified and ready to be reviewed/staged together.
 
 ## Next
+- Run authenticated browser QA on the hosted `/projects` and `/projects/[projectId]/tokens` flow to confirm the active-project fix matches the production symptom.
 - Push the untracking change if the human wants the Git history update on `origin/main`.
 - Inspect why hosted `index` runs remain stuck in `QUEUED` after bundle upload and accepted `index_run_id`; likely next checks are worker availability, queue health, and whether the hosted backend is consuming index jobs.
 - Decide whether to stop at the current non-privileged hosted evidence (`core + ops + graph`) plus accepted-but-stalled hosted `index`, or provision the extra prerequisites needed for `resolution`.

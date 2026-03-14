@@ -4,9 +4,12 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Activity, BarChart3, FolderKanban, Orbit, TerminalSquare } from "lucide-react";
 import type { ComponentType, MouseEvent } from "react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { PROJECT_STORAGE_KEY, resolveSelectedProjectId } from "@/components/projects/project-selection";
+import {
+  PROJECT_STORAGE_KEY,
+  resolveProjectNavigationState,
+} from "@/components/projects/project-selection";
 import type { ProjectSummary } from "@/lib/api/types";
 
 type ProjectsWorkspaceNavProps = {
@@ -36,41 +39,53 @@ export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWork
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [storedProjectId, setStoredProjectId] = useState<string | null>(null);
   const isDirectoryPath = pathname === "/projects";
   const knownProjectIds = useMemo(() => new Set(projects.map((project) => project.id)), [projects]);
-  const selectedProjectId = resolveSelectedProjectId({
-    pathname,
-    searchParams,
-    projects,
-  });
-
-  const navProjectId = selectedProjectId ?? activeProjectId ?? projects[0]?.id ?? null;
+  const { selectedProjectId, resolvedProjectId, shouldHydrateDirectoryQuery } =
+    resolveProjectNavigationState({
+      pathname,
+      queryProjectId: searchParams.get("project"),
+      activeProjectId,
+      storedProjectId,
+      projects,
+    });
 
   useEffect(() => {
-    if (!navProjectId) {
+    setStoredProjectId(window.localStorage.getItem(PROJECT_STORAGE_KEY));
+  }, [pathname]);
+
+  const navProjectId = resolvedProjectId;
+  const projectsHref = navProjectId ? `/projects?project=${encodeURIComponent(navProjectId)}` : "/projects";
+
+  useEffect(() => {
+    if (!navProjectId || (isDirectoryPath && !selectedProjectId)) {
       return;
     }
     window.localStorage.setItem(PROJECT_STORAGE_KEY, navProjectId);
-  }, [navProjectId]);
+  }, [isDirectoryPath, navProjectId, selectedProjectId]);
 
   useEffect(() => {
-    if (!isDirectoryPath || selectedProjectId || projects.length === 0) {
+    if (!isDirectoryPath || !shouldHydrateDirectoryQuery || projects.length === 0) {
       return;
     }
-    const storedProjectId = window.localStorage.getItem(PROJECT_STORAGE_KEY);
-    if (!storedProjectId || !knownProjectIds.has(storedProjectId)) {
+    const nextProjectId = storedProjectId ?? window.localStorage.getItem(PROJECT_STORAGE_KEY);
+    if (!nextProjectId || !knownProjectIds.has(nextProjectId)) {
       return;
     }
     const params = new URLSearchParams(searchParams.toString());
-    params.set("project", storedProjectId);
+    params.set("project", nextProjectId);
     const nextQuery = params.toString();
     window.history.replaceState(null, "", nextQuery ? `/projects?${nextQuery}` : "/projects");
   }, [
+    pathname,
     isDirectoryPath,
     knownProjectIds,
     projects.length,
     searchParams,
     selectedProjectId,
+    shouldHydrateDirectoryQuery,
+    storedProjectId,
   ]);
 
   function handleProjectChange(nextProjectId: string): void {
@@ -101,7 +116,7 @@ export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWork
   const navItems: NavItem[] = [
     {
       id: "projects",
-      href: "/projects",
+      href: projectsHref,
       label: "Projects",
       icon: FolderKanban,
     },
@@ -149,7 +164,7 @@ export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWork
           disabled={projects.length === 0}
           id="sidebar-project-select"
           onChange={(event) => handleProjectChange(event.target.value)}
-          value={selectedProjectId ?? ""}
+          value={navProjectId ?? ""}
         >
           <option disabled value="">
             {projects.length === 0 ? "No projects available" : "Select a project"}
