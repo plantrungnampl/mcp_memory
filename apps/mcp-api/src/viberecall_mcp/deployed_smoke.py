@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
+import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+from zipfile import ZIP_DEFLATED, ZipFile
 from urllib import error, request
 
 from viberecall_mcp.tool_validation_matrix import SMOKE_PROFILE_DEFINITIONS
@@ -28,6 +35,10 @@ class SmokeContext:
     def endpoint(self) -> str:
         return f"{self.base_url.rstrip('/')}/p/{self.project_id}/mcp"
 
+    @property
+    def bundle_upload_endpoint(self) -> str:
+        return f"{self.base_url.rstrip('/')}/p/{self.project_id}/index-bundles"
+
 
 @dataclass(slots=True)
 class SmokeConfig:
@@ -37,11 +48,13 @@ class SmokeConfig:
     query: str
     tag: str
     index_repo_source: dict[str, Any] | None
+    index_local_repo_path: str | None
     index_timeout_seconds: int
     poll_interval_seconds: float
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    normalized_argv = _normalize_argv(list(sys.argv[1:] if argv is None else argv))
     parser = argparse.ArgumentParser(description="Smoke test a deployed VibeRecall MCP endpoint.")
     parser.add_argument("--base-url", required=True, help="Public MCP base URL, for example https://api.example.com")
     parser.add_argument("--project-id", required=True, help="Project identifier bound to the MCP token")
@@ -72,6 +85,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--index-ref", default=None, help="Git ref used by the index smoke profile")
     parser.add_argument("--index-repo-name", default=None, help="Logical repo name used by the index smoke profile")
     parser.add_argument(
+        "--index-local-repo-path",
+        default=None,
+        help="Local repository root to package as a workspace bundle for the index smoke profile",
+    )
+    parser.add_argument(
         "--index-timeout-seconds",
         type=int,
         default=90,
@@ -83,7 +101,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=2.0,
         help="Polling interval for the index profile readiness checks",
     )
-    return parser.parse_args(argv)
+    return parser.parse_args(normalized_argv)
+
+
+def _normalize_argv(argv: list[str] | None) -> list[str] | None:
+    if argv is None:
+        return None
+    if argv[:1] == ["--"]:
+        return argv[1:]
+    return argv
 
 
 def resolve_profile_names(requested_profiles: list[str] | tuple[str, ...]) -> tuple[str, ...]:
@@ -136,6 +162,120 @@ def build_index_repo_source(
         "ref": ref,
         "repo_name": repo_name,
     }
+
+
+def _list_workspace_bundle_files(repo_path: Path) -> list[Path]:
+    git_dir = repo_path / ".git"
+    if git_dir.exists():
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(repo_path), "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+                check=True,
+                capture_output=True,
+            )
+            files: list[Path] = []
+            for raw_rel_path in result.stdout.decode("utf-8", errors="replace").split("\0"):
+                if not raw_rel_path:
+                    continue
+                full_path = (repo_path / raw_rel_path).resolve()
+                if not full_path.exists() or not full_path.is_file() or full_path.is_symlink():
+                    continue
+                files.append(full_path)
+            if files:
+                return sorted(files)
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            pass
+
+    files: list[Path] = []
+    for candidate in repo_path.rglob("*"):
+        if candidate.is_symlink() or not candidate.is_file():
+            continue
+        if ".git" in candidate.parts:
+            continue
+        files.append(candidate)
+    return sorted(files)
+
+
+def build_workspace_bundle_from_repo(repo_path: str | Path, repo_name: str | None = None) -> tuple[bytes, str]:
+    root = Path(repo_path).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        raise SmokeFailure(f"Local index repo path does not exist: {repo_path}")
+
+    bundle_files = _list_workspace_bundle_files(root)
+    if not bundle_files:
+        raise SmokeFailure(f"Local index repo path does not contain any bundleable files: {repo_path}")
+
+    logical_repo_name = (repo_name or root.name).strip() or root.name
+    generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    manifest_entries: list[dict[str, Any]] = []
+    payload = io.BytesIO()
+    with ZipFile(payload, "w", compression=ZIP_DEFLATED) as archive:
+        for file_path in bundle_files:
+            relative_path = file_path.relative_to(root).as_posix()
+            file_bytes = file_path.read_bytes()
+            manifest_entries.append(
+                {
+                    "path": relative_path,
+                    "sha256": hashlib.sha256(file_bytes).hexdigest(),
+                    "size_bytes": len(file_bytes),
+                    "mode": f"{file_path.stat().st_mode & 0o777:04o}",
+                }
+            )
+            archive.writestr(relative_path, file_bytes)
+        archive.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "format_version": 1,
+                    "repo_name": logical_repo_name,
+                    "root_relative": ".",
+                    "generated_at": generated_at,
+                    "git": None,
+                    "files": manifest_entries,
+                }
+            ),
+        )
+    return payload.getvalue(), f"{logical_repo_name}.zip"
+
+
+def upload_index_bundle(context: SmokeContext, token: str, bundle_bytes: bytes, filename: str) -> str:
+    boundary = f"----VibeRecallSmoke{uuid.uuid4().hex}"
+    body = b"".join(
+        [
+            f"--{boundary}\r\n".encode("utf-8"),
+            (
+                f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+                "Content-Type: application/zip\r\n\r\n"
+            ).encode("utf-8"),
+            bundle_bytes,
+            b"\r\n",
+            f"--{boundary}--\r\n".encode("utf-8"),
+        ]
+    )
+    req = request.Request(
+        context.bundle_upload_endpoint,
+        data=body,
+        headers={
+            "accept": "application/json",
+            "authorization": f"Bearer {token}",
+            "content-type": f"multipart/form-data; boundary={boundary}",
+        },
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=60) as response:
+            payload = _decode_payload(response, response.read())
+    except error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise SmokeFailure(f"HTTP {exc.code} from index bundle upload endpoint: {body}") from exc
+    except error.URLError as exc:
+        raise SmokeFailure(f"Could not reach index bundle upload endpoint: {exc}") from exc
+
+    bundle = payload.get("bundle") or {}
+    bundle_ref = str(bundle.get("bundle_ref") or "").strip()
+    if not bundle_ref:
+        raise SmokeFailure(f"Index bundle upload did not return a bundle_ref: {payload}")
+    return bundle_ref
 
 
 def _decode_payload(response, body: bytes) -> dict[str, Any]:
@@ -638,7 +778,15 @@ def _poll_index_ready(
 
 def run_index_profile(context: SmokeContext, *, token: str, config: SmokeConfig, state: dict[str, Any]) -> dict[str, Any]:
     ensure_profile_tools_available("index", list_tools(context, token))
-    if config.index_repo_source is None:
+    repo_source = config.index_repo_source
+    if config.index_local_repo_path:
+        bundle_bytes, filename = build_workspace_bundle_from_repo(
+            config.index_local_repo_path,
+            repo_name=(repo_source or {}).get("repo_name") if repo_source else None,
+        )
+        bundle_ref = upload_index_bundle(context, token, bundle_bytes, filename)
+        repo_source = {"type": "workspace_bundle", "bundle_ref": bundle_ref}
+    if repo_source is None:
         raise SmokeFailure("index profile is missing repository source configuration")
 
     marker = _core_marker(config, "index")
@@ -648,7 +796,7 @@ def run_index_profile(context: SmokeContext, *, token: str, config: SmokeConfig,
         request_id="index-run",
         tool_name="viberecall_index_repo",
         arguments={
-            "repo_source": config.index_repo_source,
+            "repo_source": repo_source,
             "mode": "FULL_SNAPSHOT",
             "idempotency_key": f"index-run:{marker}",
         },
@@ -832,19 +980,29 @@ def _profile_tokens_from_args(args: argparse.Namespace) -> dict[str, str]:
 
 
 def build_config_from_args(args: argparse.Namespace) -> SmokeConfig:
+    requested_profiles = resolve_profile_names(args.profile)
+    if "index" in requested_profiles and args.index_local_repo_path:
+        if args.index_repo_url or args.index_ref:
+            raise SmokeFailure("Index profile accepts either git repo args or --index-local-repo-path, not both")
+        index_repo_source = None
+    else:
+        index_repo_source = (
+            build_index_repo_source(
+                repo_url=args.index_repo_url,
+                ref=args.index_ref,
+                repo_name=args.index_repo_name,
+            )
+            if "index" in requested_profiles
+            else None
+        )
     return SmokeConfig(
-        profiles=resolve_profile_names(args.profile),
+        profiles=requested_profiles,
         shared_token=args.token,
         profile_tokens=_profile_tokens_from_args(args),
         query=args.query,
         tag=args.tag,
-        index_repo_source=build_index_repo_source(
-            repo_url=args.index_repo_url,
-            ref=args.index_ref,
-            repo_name=args.index_repo_name,
-        )
-        if "index" in resolve_profile_names(args.profile)
-        else None,
+        index_repo_source=index_repo_source,
+        index_local_repo_path=args.index_local_repo_path if "index" in requested_profiles else None,
         index_timeout_seconds=args.index_timeout_seconds,
         poll_interval_seconds=args.poll_interval_seconds,
     )

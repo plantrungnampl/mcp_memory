@@ -22,11 +22,13 @@ import type {
   TokenActionState,
 } from "@/app/projects/action-types";
 import type {
+  ProjectIndexSummary,
   ProjectExport,
   ProjectOpsDashboardPayload,
   ProjectToken,
   UsageSeries,
 } from "@/lib/api/types";
+import { getProjectIndexUiState } from "@/lib/project-index-summary";
 import { fetchQueryJson, normalizeQueryError } from "@/lib/query/fetch";
 import { projectQueryKeys } from "@/lib/query/keys";
 
@@ -157,6 +159,20 @@ function exportStatusStyle(status: ProjectExport["status"]): string {
   return "bg-slate-700/80 text-slate-100";
 }
 
+function indexToneClassName(summary: ProjectIndexSummary | null): string {
+  const tone = getProjectIndexUiState(summary).tone;
+  if (tone === "success") {
+    return "border-emerald-400/25 bg-emerald-500/10 text-emerald-100";
+  }
+  if (tone === "warning") {
+    return "border-amber-400/30 bg-amber-500/10 text-amber-100";
+  }
+  if (tone === "danger") {
+    return "border-rose-400/25 bg-rose-500/10 text-rose-100";
+  }
+  return "border-[var(--vr-border)] bg-[var(--vr-bg-card)] text-[var(--vr-text-main)]";
+}
+
 type ExportErrorMessage = {
   message: string;
   hint: string | null;
@@ -281,6 +297,7 @@ export function TokenDashboardPanel({
   const usageMonthly = dashboardData.usageMonthly;
   const usageSeries = dashboardData.usageSeries;
   const overviewRow = dashboardData.overviewRow;
+  const indexSummary = dashboardData.indexSummary;
   const logs = dashboardData.logs;
   const exports = dashboardData.exports;
   const relativeTimeNowMs = Date.parse(dashboardData.generatedAt);
@@ -332,6 +349,7 @@ export function TokenDashboardPanel({
       : healthStatus === "error"
         ? "Action required"
         : "Awaiting activity";
+  const indexUiState = getProjectIndexUiState(indexSummary);
   const latestMessage =
     exportState.message ?? revokeState.message ?? rotateState.message ?? mintState.message;
   const issuedTokenCandidate = useMemo(() => {
@@ -441,6 +459,19 @@ export function TokenDashboardPanel({
           Dashboard data may be stale. {opsDashboardError.message}
         </div>
       ) : null}
+
+      <section className={`rounded-xl border px-4 py-3 ${indexToneClassName(indexSummary)}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">Code Index</p>
+            <p className="text-sm font-semibold">{indexUiState.headline}</p>
+            <p className="text-sm opacity-90">{indexUiState.body}</p>
+          </div>
+          <span className="rounded-full border border-current/20 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]">
+            {indexUiState.badgeLabel}
+          </span>
+        </div>
+      </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {stats.map((item, index) => {

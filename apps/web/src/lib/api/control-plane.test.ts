@@ -1,6 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+test("mapProjectIndexSummary converts snake_case payloads", async () => {
+  const { mapProjectIndexSummary } = await import("./control-plane");
+
+  const summary = mapProjectIndexSummary({
+    status: "stalled",
+    current_run_id: "idx_stalled",
+    latest_ready_at: "2026-03-14T11:58:00Z",
+    queued_at: "2026-03-14T11:55:00Z",
+    started_at: null,
+    completed_at: null,
+    age_seconds: 300,
+    error_code: null,
+    error_message: null,
+    recommended_action: "check_workers",
+  });
+
+  assert.deepEqual(summary, {
+    status: "stalled",
+    currentRunId: "idx_stalled",
+    latestReadyAt: "2026-03-14T11:58:00Z",
+    queuedAt: "2026-03-14T11:55:00Z",
+    startedAt: null,
+    completedAt: null,
+    ageSeconds: 300,
+    errorCode: null,
+    errorMessage: null,
+    recommendedAction: "check_workers",
+  });
+});
+
 test("createControlPlaneHeaders attaches assertion and request id", async () => {
   process.env.CONTROL_PLANE_INTERNAL_SECRET = "test-control-plane-secret";
   process.env.CONTROL_PLANE_API_BASE_URL = "http://localhost:8010";

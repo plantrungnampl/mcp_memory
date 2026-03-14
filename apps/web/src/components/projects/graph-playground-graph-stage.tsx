@@ -19,6 +19,7 @@ import type Graph from "graphology";
 
 import type { ParsedControlPlaneError } from "@/lib/api/control-plane-error";
 import type { ProjectGraphPayload } from "@/lib/api/types";
+import { getProjectIndexUiState } from "@/lib/project-index-summary";
 
 import {
   type HoverEdgeState,
@@ -44,10 +45,11 @@ function emptyStateCopy(payload: ProjectGraphPayload | undefined): { eyebrow: st
     };
   }
   if (payload.mode === "code" && payload.emptyReason === "no_ready_index") {
+    const indexUiState = getProjectIndexUiState(payload.indexSummary);
     return {
       eyebrow: "Code topology unavailable",
-      title: "There is no READY code index snapshot yet",
-      body: "Run indexing first, then reopen Code Topology.",
+      title: indexUiState.headline,
+      body: indexUiState.body,
     };
   }
   return {

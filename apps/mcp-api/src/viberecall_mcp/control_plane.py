@@ -20,6 +20,7 @@ from viberecall_mcp.auth import hash_payload, hash_token
 from viberecall_mcp.code_index import (
     build_code_topology_graph,
     get_code_topology_entity_detail,
+    index_status,
     validate_workspace_bundle_archive,
 )
 from viberecall_mcp.config import get_settings
@@ -177,6 +178,73 @@ def _serialize_project_overview(project: dict) -> dict:
         "token_preview": project.get("token_preview"),
         "token_status": project.get("token_status", "missing"),
         "health_status": project.get("health_status", "idle"),
+    }
+
+
+def _normalize_index_error_payload(error_payload: object | None) -> tuple[str | None, str | None]:
+    if isinstance(error_payload, dict):
+        code = error_payload.get("code")
+        message = error_payload.get("message")
+        return (
+            str(code).strip() or None if code is not None else None,
+            str(message).strip() or None if message is not None else None,
+        )
+    if error_payload is None:
+        return None, None
+    message = str(error_payload).strip()
+    return None, message or None
+
+
+def _build_project_index_summary(index_payload: dict, *, now: datetime | None = None) -> dict:
+    current_now = now or datetime.now(timezone.utc)
+    current_run = index_payload.get("current_run") or {}
+    latest_ready = index_payload.get("latest_ready_snapshot") or {}
+    raw_status = str(index_payload.get("status") or "EMPTY").upper()
+
+    queued_at = current_run.get("queued_at")
+    started_at = current_run.get("started_at")
+    completed_at = current_run.get("completed_at")
+    latest_ready_at = latest_ready.get("indexed_at")
+    current_run_id = current_run.get("index_run_id")
+
+    age_anchor = (
+        _parse_iso_datetime(completed_at)
+        or _parse_iso_datetime(started_at)
+        or _parse_iso_datetime(queued_at)
+        or _parse_iso_datetime(latest_ready_at)
+    )
+    age_seconds = None
+    if age_anchor is not None:
+        age_seconds = max(0, int((current_now - age_anchor).total_seconds()))
+
+    status = "missing"
+    recommended_action = "start_index"
+    if raw_status == "READY":
+        status = "ready"
+        recommended_action = "none"
+    elif raw_status == "FAILED":
+        status = "failed"
+        recommended_action = "retry"
+    elif raw_status == "QUEUED":
+        status = "stalled" if age_seconds is not None and age_seconds > 120 else "queued"
+        recommended_action = "check_workers" if status == "stalled" else "wait"
+    elif raw_status == "RUNNING":
+        status = "stalled" if age_seconds is not None and age_seconds > 900 else "running"
+        recommended_action = "check_workers" if status == "stalled" else "wait"
+
+    error_code, error_message = _normalize_index_error_payload(current_run.get("error"))
+
+    return {
+        "status": status,
+        "current_run_id": current_run_id,
+        "latest_ready_at": latest_ready_at,
+        "queued_at": queued_at,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "age_seconds": age_seconds,
+        "error_code": error_code,
+        "error_message": error_message,
+        "recommended_action": recommended_action,
     }
 
 
@@ -877,6 +945,30 @@ async def projects_overview_route(
     }
 
 
+@router.get("/projects/{project_id}/index-status")
+async def project_index_status_route(
+    project_id: str,
+    user: AuthenticatedControlPlaneUser = Depends(authenticate_control_plane_request),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _ensure_project_access(
+        session,
+        project_id=project_id,
+        user=user,
+        claim_unowned_on_write=False,
+    )
+    payload = await index_status(session=session, project_id=project_id)
+    summary = _build_project_index_summary(payload)
+    await _audit_control_plane(
+        session,
+        action="control-plane/index-status.read",
+        status_text="ok",
+        user=user,
+        project_id=project_id,
+    )
+    return {"index_summary": summary}
+
+
 @router.post("/projects")
 async def create_project_route(
     payload: CreateProjectInput,
@@ -1196,6 +1288,7 @@ async def project_graph_route(
 
     await _ensure_graph_dependencies_ready()
     parsed_types = {item.strip() for item in (entity_types or "").split(",") if item.strip()}
+    index_summary = _build_project_index_summary(await index_status(session=session, project_id=project_id))
     if mode == "code":
         payload = await build_code_topology_graph(
             session=session,
@@ -1214,6 +1307,7 @@ async def project_graph_route(
             max_nodes=max_nodes,
             max_edges=max_edges,
         )
+    payload["index_summary"] = index_summary
     await _audit_control_plane(
         session,
         action="control-plane/graph.read",

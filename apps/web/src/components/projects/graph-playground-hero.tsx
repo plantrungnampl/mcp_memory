@@ -3,6 +3,7 @@
 import { Activity, Clock3, GitBranch } from "lucide-react";
 
 import type { GraphViewMode, ProjectGraphPayload } from "@/lib/api/types";
+import { getProjectIndexUiState } from "@/lib/project-index-summary";
 
 import { formatDateTime } from "./graph-playground-shared";
 
@@ -30,6 +31,7 @@ export function GraphPlaygroundHero({
   isError,
 }: GraphPlaygroundHeroProps) {
   const hasData = Boolean(graphPayload);
+  const indexUiState = getProjectIndexUiState(graphPayload?.indexSummary);
   const freshnessLabel = graphPayload
     ? `Updated ${formatDateTime(graphPayload.generatedAt)}`
     : isError
@@ -83,9 +85,14 @@ export function GraphPlaygroundHero({
             <div className={`rounded-2xl border px-4 py-3 ${pillTone(isError, hasData)}`}>
               <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em]">
                 <Clock3 className="size-3.5" />
-                Freshness
+                {mode === "code" ? "Index Status" : "Freshness"}
               </div>
-              <p className="mt-2 text-sm font-medium leading-5">{freshnessLabel}</p>
+              <p className="mt-2 text-sm font-medium leading-5">
+                {mode === "code" ? indexUiState.badgeLabel : freshnessLabel}
+              </p>
+              {mode === "code" ? (
+                <p className="mt-1 text-xs leading-5 opacity-90">{indexUiState.body}</p>
+              ) : null}
             </div>
           </div>
         </div>

@@ -432,6 +432,92 @@ def test_healthz_returns_dependency_probe_payload(monkeypatch) -> None:
     assert body["checks"]["falkordb"]["status"] == "error"
 
 
+def test_build_project_index_summary_reports_stalled_queue() -> None:
+    summary = control_plane._build_project_index_summary(
+        {
+            "status": "QUEUED",
+            "current_run": {
+                "index_run_id": "idx_queue",
+                "queued_at": "2026-03-14T11:55:00Z",
+                "started_at": None,
+                "completed_at": None,
+                "error": None,
+            },
+            "latest_ready_snapshot": None,
+        },
+        now=datetime(2026, 3, 14, 12, 0, 0, tzinfo=timezone.utc),
+    )
+
+    assert summary["status"] == "stalled"
+    assert summary["recommended_action"] == "check_workers"
+    assert summary["current_run_id"] == "idx_queue"
+    assert summary["age_seconds"] == 300
+
+
+def test_build_project_index_summary_prefers_latest_ready_snapshot() -> None:
+    summary = control_plane._build_project_index_summary(
+        {
+            "status": "READY",
+            "current_run": None,
+            "latest_ready_snapshot": {
+                "index_run_id": "idx_ready",
+                "indexed_at": "2026-03-14T11:58:00Z",
+            },
+        },
+        now=datetime(2026, 3, 14, 12, 0, 0, tzinfo=timezone.utc),
+    )
+
+    assert summary["status"] == "ready"
+    assert summary["recommended_action"] == "none"
+    assert summary["latest_ready_at"] == "2026-03-14T11:58:00Z"
+    assert summary["age_seconds"] == 120
+
+
+def test_control_plane_index_status_route_returns_summary(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_index", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_index_status(*, session, project_id: str, index_run_id: str | None = None):
+        _ = session
+        assert project_id == "proj_index"
+        assert index_run_id is None
+        return {
+            "status": "FAILED",
+            "current_run": {
+                "index_run_id": "idx_failed",
+                "queued_at": "2026-03-14T11:57:00Z",
+                "started_at": "2026-03-14T11:58:00Z",
+                "completed_at": "2026-03-14T11:59:00Z",
+                "error": {"code": "INDEX_FAILED", "message": "worker crashed"},
+            },
+            "latest_ready_snapshot": None,
+        }
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "index_status", fake_index_status)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/control-plane/projects/proj_index/index-status",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["index_summary"]["status"] == "failed"
+    assert body["index_summary"]["current_run_id"] == "idx_failed"
+    assert body["index_summary"]["error_code"] == "INDEX_FAILED"
+    assert body["index_summary"]["recommended_action"] == "retry"
+
+
 def test_token_status_grace_window() -> None:
     future = datetime.now(timezone.utc) + timedelta(minutes=5)
     past = datetime.now(timezone.utc) - timedelta(minutes=1)
@@ -595,6 +681,11 @@ def test_project_graph_returns_nodes_and_edges(monkeypatch) -> None:
     async def fake_ensure_graph_dependencies_ready() -> None:
         return None
 
+    async def fake_index_status(*, session, project_id: str, index_run_id: str | None = None):
+        assert project_id == "proj_1"
+        assert index_run_id is None
+        return {"status": "MISSING"}
+
     async def fake_collect_project_facts(*, project_id: str, max_rows: int):
         assert project_id == "proj_1"
         assert max_rows == 5000
@@ -645,6 +736,7 @@ def test_project_graph_returns_nodes_and_edges(monkeypatch) -> None:
         "_ensure_graph_dependencies_ready",
         fake_ensure_graph_dependencies_ready,
     )
+    monkeypatch.setattr(control_plane, "index_status", fake_index_status)
     monkeypatch.setattr(control_plane, "_collect_project_facts", fake_collect_project_facts)
     monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
 
@@ -754,6 +846,11 @@ def test_project_graph_returns_concepts_unavailable_when_only_code_entities_rema
     async def fake_ensure_graph_dependencies_ready() -> None:
         return None
 
+    async def fake_index_status(*, session, project_id: str, index_run_id: str | None = None):
+        assert project_id == "proj_1"
+        assert index_run_id is None
+        return {"status": "MISSING"}
+
     async def fake_collect_project_facts(*, project_id: str, max_rows: int):
         assert project_id == "proj_1"
         assert max_rows == 5000
@@ -784,6 +881,7 @@ def test_project_graph_returns_concepts_unavailable_when_only_code_entities_rema
     app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
     monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
     monkeypatch.setattr(control_plane, "_ensure_graph_dependencies_ready", fake_ensure_graph_dependencies_ready)
+    monkeypatch.setattr(control_plane, "index_status", fake_index_status)
     monkeypatch.setattr(control_plane, "_collect_project_facts", fake_collect_project_facts)
     monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
 
@@ -855,6 +953,18 @@ def test_project_graph_returns_code_topology_payload(monkeypatch) -> None:
             ],
         }
 
+    async def fake_index_status(*, session, project_id: str, index_run_id: str | None = None):
+        _ = (session, index_run_id)
+        assert project_id == "proj_1"
+        return {
+            "status": "READY",
+            "current_run": None,
+            "latest_ready_snapshot": {
+                "index_run_id": "idx_ready",
+                "indexed_at": "2026-03-08T10:00:00Z",
+            },
+        }
+
     async def fake_audit(*_args, **_kwargs):
         return None
 
@@ -863,6 +973,7 @@ def test_project_graph_returns_code_topology_payload(monkeypatch) -> None:
     app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
     monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
     monkeypatch.setattr(control_plane, "_ensure_graph_dependencies_ready", fake_ensure_graph_dependencies_ready)
+    monkeypatch.setattr(control_plane, "index_status", fake_index_status)
     monkeypatch.setattr(control_plane, "build_code_topology_graph", fake_build_code_topology_graph)
     monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
 
@@ -1017,6 +1128,10 @@ def test_project_graph_returns_503_when_fact_collection_detects_dependency_failu
             detail="Graph dependency check failed for memory backend 'graphiti': Error 111 connecting to localhost:6380. Connection refused.",
         )
 
+    async def fake_index_status(*, session, project_id: str, index_run_id: str | None = None):
+        _ = (session, project_id, index_run_id)
+        return {"status": "EMPTY", "current_run": None, "latest_ready_snapshot": None}
+
     app = create_app()
     app.dependency_overrides[get_db_session] = override_session
     app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
@@ -1026,6 +1141,7 @@ def test_project_graph_returns_503_when_fact_collection_detects_dependency_failu
         "_ensure_graph_dependencies_ready",
         fake_ensure_graph_dependencies_ready,
     )
+    monkeypatch.setattr(control_plane, "index_status", fake_index_status)
     monkeypatch.setattr(
         control_plane,
         "_collect_project_facts_for_graph",

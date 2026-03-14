@@ -246,6 +246,17 @@ pnpm smoke:mcp:deployed -- \
   --token <plaintext_mcp_token>
 ```
 
+The wrapper now strips the leading `--` before handing arguments to the Python entrypoint, so the documented `pnpm ... -- ...` form is the supported path.
+
+If you are debugging the script directly, the underlying entrypoint remains:
+
+```bash
+uv run --project apps/mcp-api python apps/mcp-api/scripts/smoke_deployed_mcp.py \
+  --base-url https://api.example.com \
+  --project-id <project_id> \
+  --token <plaintext_mcp_token>
+```
+
 By default this runs the `core` profile, which validates:
 
 - `viberecall_save_episode`
@@ -300,6 +311,15 @@ pnpm smoke:mcp:deployed -- \
   --index-ref main \
   --index-repo-name smoke-repo
 
+# index a local repo by packaging it as a workspace bundle first
+pnpm smoke:mcp:deployed -- \
+  --base-url https://api.example.com \
+  --project-id <project_id> \
+  --profile index \
+  --index-token <index_token> \
+  --index-local-repo-path /absolute/path/to/local-repo \
+  --index-repo-name local-repo
+
 # resolution requires a privileged token with resolution:write
 pnpm smoke:mcp:deployed -- \
   --base-url https://api.example.com \
@@ -311,8 +331,13 @@ pnpm smoke:mcp:deployed -- \
 Notes:
 
 - The smoke runner uses explicit token-to-profile mapping; if a profile token is not provided it falls back to `--token`.
-- `index` is intentionally gated and should only be used when `INDEX_REMOTE_GIT_ENABLED=true` on the target runtime.
+- `index` is intentionally gated and should only use `--index-repo-url/--index-ref` when `INDEX_REMOTE_GIT_ENABLED=true` on the target runtime.
+- `--index-local-repo-path` uses the runtime `/p/{project_id}/index-bundles` upload route plus `repo_source.type=workspace_bundle`, so it does not depend on remote git indexing being enabled.
 - `resolution` is intentionally destructive within the smoke project and should use a dedicated test project/token.
+- If `index` is accepted but stays `QUEUED`, treat that as a runtime/worker readiness issue, not a client packaging issue.
+- If `index` stays `RUNNING` for an unusually long time, inspect worker health and queue delivery before retrying the same request.
+- If `index` returns `FAILED`, capture the terminal error payload and backend logs before rerunning smoke.
+- Hosted runtimes cannot read a raw local filesystem path directly; use `--index-local-repo-path` only because the smoke runner uploads a workspace bundle first.
 
 ## Runtime integration tests (FalkorDB + Redis)
 

@@ -8,6 +8,7 @@ import type {
   MaintenanceJob,
   ProjectGraphEntityDetail,
   ProjectGraphPayload,
+  ProjectIndexSummary,
   ProjectApiLogsAnalyticsPayload,
   ProjectApiLogsPage,
   ProjectBillingOverview,
@@ -113,6 +114,32 @@ async function parseJson<T>(response: Response): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+export function mapProjectIndexSummary(payload: {
+  status: ProjectIndexSummary["status"];
+  current_run_id: string | null;
+  latest_ready_at: string | null;
+  queued_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  age_seconds: number | null;
+  error_code: string | null;
+  error_message: string | null;
+  recommended_action: ProjectIndexSummary["recommendedAction"];
+}): ProjectIndexSummary {
+  return {
+    status: payload.status,
+    currentRunId: payload.current_run_id,
+    latestReadyAt: payload.latest_ready_at,
+    queuedAt: payload.queued_at,
+    startedAt: payload.started_at,
+    completedAt: payload.completed_at,
+    ageSeconds: payload.age_seconds,
+    errorCode: payload.error_code,
+    errorMessage: payload.error_message,
+    recommendedAction: payload.recommended_action,
+  };
 }
 
 export async function getProjects(user: ControlPlaneUser): Promise<ProjectSummary[]> {
@@ -565,6 +592,18 @@ export async function getProjectGraph(
       generated_at: string;
       mode: GraphViewMode;
       empty_reason: ProjectGraphPayload["emptyReason"];
+      index_summary: {
+        status: ProjectIndexSummary["status"];
+        current_run_id: string | null;
+        latest_ready_at: string | null;
+        queued_at: string | null;
+        started_at: string | null;
+        completed_at: string | null;
+        age_seconds: number | null;
+        error_code: string | null;
+        error_message: string | null;
+        recommended_action: ProjectIndexSummary["recommendedAction"];
+      } | null;
       available_modes: GraphViewMode[];
       node_primary_label: string;
       node_secondary_label: string;
@@ -597,6 +636,7 @@ export async function getProjectGraph(
     generatedAt: payload.graph.generated_at,
     mode: payload.graph.mode,
     emptyReason: payload.graph.empty_reason,
+    indexSummary: payload.graph.index_summary ? mapProjectIndexSummary(payload.graph.index_summary) : null,
     availableModes: payload.graph.available_modes,
     nodePrimaryLabel: payload.graph.node_primary_label,
     nodeSecondaryLabel: payload.graph.node_secondary_label,
@@ -626,6 +666,34 @@ export async function getProjectGraph(
       label: edge.label,
     })),
   };
+}
+
+export async function getProjectIndexSummary(
+  user: ControlPlaneUser,
+  projectId: string,
+): Promise<ProjectIndexSummary> {
+  const response = await fetch(
+    `${serverEnv.controlPlaneApiBaseUrl}/api/control-plane/projects/${projectId}/index-status`,
+    {
+      cache: "no-store",
+      headers: controlPlaneHeaders(user),
+    },
+  );
+  const payload = await parseJson<{
+    index_summary: {
+      status: ProjectIndexSummary["status"];
+      current_run_id: string | null;
+      latest_ready_at: string | null;
+      queued_at: string | null;
+      started_at: string | null;
+      completed_at: string | null;
+      age_seconds: number | null;
+      error_code: string | null;
+      error_message: string | null;
+      recommended_action: ProjectIndexSummary["recommendedAction"];
+    };
+  }>(response);
+  return mapProjectIndexSummary(payload.index_summary);
 }
 
 export async function getProjectGraphEntityDetail(

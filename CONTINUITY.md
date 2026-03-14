@@ -16,6 +16,7 @@
 - Public docs must remain a separate static site; `apps/web` should only keep `/docs` as a compatibility redirect.
 
 ## Key decisions
+- On 2026-03-14, the reliability-first MCP trust sprint was narrowed to diagnostics and operator clarity instead of new MCP capabilities: derive a stable `index_summary` on the control-plane/backend, surface it in the web dashboard + graph UI, and make the public smoke wrapper/documentation match the supported invocation path.
 - On 2026-03-14, the AI-agent rules/docs pass was narrowed to a docs-and-policy sync only: no MCP contract change, no new overview tool, and no widening of the public surface in this pass.
 - On 2026-03-14, repo-local and public agent guidance were aligned on an overview-first policy for feature work on existing codebases: start with `viberecall_get_status` + `viberecall_get_context_pack`, inspect the overview fields explicitly, use local repo inspection as the code source of truth for repo-local agents, and treat indexing as the next required step only inside a trusted workflow when code overview is still missing.
 - On 2026-03-14, the `/projects` active-project reset bug was narrowed to `apps/web` client selection logic: `ProjectsWorkspaceNav` wrote `projects[0]` into `localStorage` on the directory route before stored-project restoration ran, so clicking back to `Projects` could replace the previously selected project with the first row. The smallest safe fix is to separate explicit selection from fallback selection, preserve `?project=` in the `Projects` nav href, and guard directory-route persistence until query restoration has resolved.
@@ -61,6 +62,9 @@
 - On 2026-03-13, public docs for `viberecall_get_context_pack` were aligned to the new dual-mode contract: MCP reference and backend README now document `code_augmented` versus `memory_only` behavior explicitly, while guides/playbooks were tightened to treat indexing as a manual follow-up only when broad context still lacks needed code structure.
 
 ## State
+- The control-plane backend now has a dedicated project index-diagnostics surface that classifies code index state as `missing|queued|running|stalled|ready|failed` with a recommended operator action.
+- The web project workspace now receives and renders code-index status separately from generic project health: the tokens dashboard and Graph Playground code-mode empty states no longer collapse stuck/missing index runs into generic copy.
+- The public deployed-smoke wrapper now accepts the documented `pnpm smoke:mcp:deployed -- ...` form by stripping the forwarded literal `--` before Python `argparse` runs.
 - The backend test/tooling surface now has a shared source of truth for MCP validation coverage and smoke-profile ownership across all 25 public tools.
 - The deployed MCP smoke runner no longer assumes one monolithic core flow; it now supports staged profile execution with explicit token and prerequisite gating for graph, index, and resolution paths.
 - Optional runtime E2E coverage now extends beyond legacy save/update worker flow into canonical + ops roundtrips, but still requires Redis + FalkorDB + Celery to be available locally.
@@ -93,6 +97,14 @@
 - The docs set now reflects the dual-mode `context_pack` behavior: public reference pages document `context_mode`, `index_status`, `index_hint`, and richer indexed architecture fields, while agent guides/playbooks describe the workflow as "inspect pack mode first, then decide whether indexing is worth it."
 
 ## Done
+- Added `_build_project_index_summary(...)` plus `GET /api/control-plane/projects/{project_id}/index-status` in `apps/mcp-api/src/viberecall_mcp/control_plane.py`, and attached the same derived summary to the project graph payload.
+- Added backend regression coverage for index-summary mapping, the new control-plane route, and the graph route’s new index-status dependency in `apps/mcp-api/tests/test_control_plane_api.py`.
+- Fixed `apps/mcp-api/src/viberecall_mcp/deployed_smoke.py` argument parsing so a leading literal `--` from `pnpm ... -- ...` is normalized away before `argparse`, then covered that path in `apps/mcp-api/tests/test_deployed_smoke_profiles.py`.
+- Added `ProjectIndexSummary` types plus snake_case-to-camelCase mapping in `apps/web/src/lib/api`, then fetched index summary separately for the ops dashboard and passed graph index summary through the existing graph payload.
+- Added `apps/web/src/lib/project-index-summary.ts` and tests so dashboard/graph UI copy for `missing`, `queued`, `running`, `stalled`, `failed`, and `ready` lives in one small pure helper.
+- Updated `TokenDashboardPanel`, `GraphPlaygroundHero`, `GraphPlaygroundGraphStage`, and `GraphPlaygroundPanel` so user-facing code-mode surfaces explain whether indexing is missing, queued, building, stalled, failed, or ready.
+- Updated `apps/mcp-api/README.md` and `apps/docs/docs/troubleshooting/common-failures.md` so the supported smoke command, hosted local-path boundary, and the new `QUEUED/RUNNING/FAILED` index failure classes are documented consistently.
+- Verified `pnpm --dir apps/web test:unit`, `pnpm --dir apps/web typecheck`, `pnpm --dir apps/web build`, `pnpm --dir apps/docs build`, `pnpm smoke:mcp:deployed -- --help`, and `UV_CACHE_DIR=/tmp/uv-cache uv run --project apps/mcp-api pytest -q apps/mcp-api/tests/test_control_plane_api.py apps/mcp-api/tests/test_deployed_smoke_profiles.py`.
 - Fixed the web active-project selection bug so returning from `/projects/[projectId]/tokens` to `Projects` keeps the current project instead of resetting to the first project.
 - Added a pure project-selection helper regression surface in `apps/web/src/components/projects/project-selection.ts` and covered directory/query/storage precedence with `apps/web/src/project-selection.test.ts`.
 - Verified `pnpm --dir apps/web test:unit`, `pnpm --dir apps/web typecheck`, and `pnpm --dir apps/web build` after the active-project selection patch.
@@ -206,12 +218,13 @@
 - Verified `pnpm --dir apps/docs build` after the docs sweep.
 
 ## Now
+- The current reliability pass is focused on making hosted indexing and graph UX diagnosable for technical users instead of leaving them with generic “run indexing first” or wrapper-vs-direct-command ambiguity.
 - The current docs/rules pass is updating repo-local and public guidance so "implement a new feature on an existing repo" is treated as a project-overview workflow rather than generic safe retrieval.
 - The web app now preserves the selected project when navigating back to the `Projects` directory by carrying the effective project id through `?project=` and by restoring stored selection before any directory-route fallback can overwrite it.
 - The repository no longer needs to carry the two large spec folders in version control; they are being treated as local-only reference material via `.gitignore`.
 - The public docs rules set is now stricter and more explicit for AI-agent operators, especially around startup flow, trust boundaries, local unpublished code, and privileged MCP usage.
 - Real hosted validation evidence now exists for the MCP `core`, `ops`, and `graph` smoke profiles on `api.viberecall.dev`, and the hosted `index` path now reaches `bundle upload -> index_run accepted -> status polling`; the remaining hosted gap is that `index` does not complete beyond `QUEUED`, plus the untouched `resolution` profile.
-- The current smoke runner logic is good on the hosted target, but the `pnpm smoke:mcp:deployed -- ...` wrapper invocation is not reliable in this shell environment because the literal `--` reaches `argparse`.
+- The current smoke runner logic is now aligned with the documented `pnpm smoke:mcp:deployed -- ...` invocation in this shell environment; remaining hosted `index` uncertainty is now runtime-side job progress rather than client-side argument forwarding.
 - The current branch contains the MCP coverage-ladder hardening patch: shared tool matrix, staged deployed smoke profiles, and expanded optional runtime E2E coverage.
 - Local verification is now green for both the broad MCP regression suite and the real-service runtime E2E path, but they currently need to run as separate pytest invocations because mixed-process execution still contaminates async DB engine state across event loops.
 - The local runtime stack under `ops/docker-compose.runtime.yml` is up and sufficient for the dedicated `runtime_e2e_celery` validation path.
@@ -228,11 +241,11 @@
 - The current code changes for the SEO follow-up, favicon alignment, Graphiti/OpenAI env hardening, and the `www`/`app` host split are locally verified and ready to be reviewed/staged together.
 
 ## Next
+- Run authenticated browser QA on the hosted tokens workspace and Graph Playground code mode to confirm the new index-status messaging is understandable against real project states.
+- Inspect why hosted `index` runs remain stuck in `QUEUED` after bundle upload and accepted `index_run_id`; the next likely checks are worker availability, queue health, and whether the hosted backend is consuming index jobs.
 - Run authenticated browser QA on the hosted `/projects` and `/projects/[projectId]/tokens` flow to confirm the active-project fix matches the production symptom.
 - Push the untracking change if the human wants the Git history update on `origin/main`.
-- Inspect why hosted `index` runs remain stuck in `QUEUED` after bundle upload and accepted `index_run_id`; likely next checks are worker availability, queue health, and whether the hosted backend is consuming index jobs.
 - Decide whether to stop at the current non-privileged hosted evidence (`core + ops + graph`) plus accepted-but-stalled hosted `index`, or provision the extra prerequisites needed for `resolution`.
-- Clarify or fix the documented `pnpm smoke:mcp:deployed -- ...` invocation so operators do not hit the extra-`--` argparse failure on real runs.
 - Keep `apps/mcp-api/tests/test_runtime_e2e_celery.py` isolated in CI/local commands until async DB engine lifecycle can be made safe across mixed sync/async pytest suites.
 - Run the staged deployed smoke against a real QA target with profile-specific tokens, especially `graph`, `index`, and `resolution`, once a dedicated smoke project/token set exists.
 - Use `pnpm test:backend:runtime` or the documented dedicated pytest command for local real-service validation; do not mix `test_runtime_e2e_celery.py` into a broader `RUN_RUNTIME_E2E_CELERY=1` run.

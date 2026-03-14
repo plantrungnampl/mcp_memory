@@ -88,6 +88,78 @@ Fix:
 
 See [Local Workspace Bridge](/agent-guides/local-workspace-bridge) for the safe model.
 
+## Index run stays `QUEUED`
+
+Cause:
+
+- the index request was accepted but no worker has started processing it yet
+- the queue may be paused, unhealthy, or pointed at the wrong backend
+
+Fix:
+
+1. confirm the project really received an `index_run_id`
+2. wait briefly and recheck `viberecall_get_index_status`
+3. if the run stays queued past the expected worker pickup window, inspect worker health and queue delivery
+
+Interpretation:
+
+- this is usually a runtime readiness problem
+- it is not evidence that the client-side bundle upload or repo-source payload was malformed
+
+## Index run stays `RUNNING` too long
+
+Cause:
+
+- a worker picked up the run but indexing is not completing
+- the worker may be stuck on repository fetch, parsing, or persistence
+
+Fix:
+
+1. recheck `viberecall_get_index_status` to confirm the run is still non-terminal
+2. inspect worker logs and API logs before retrying
+3. only rerun indexing after you know whether the previous run is genuinely stuck or simply slow
+
+Interpretation:
+
+- long-running indexing should be treated as a worker/runtime diagnosis problem first
+- avoid repeated retries until you understand why the current run is not finishing
+
+## Index run returns `FAILED`
+
+Cause:
+
+- the runtime reached a terminal indexing failure
+- the failure may come from repo access, bundle validation, parsing, or persistence
+
+Fix:
+
+1. capture the `error.code` and `error.message` from `viberecall_get_index_status`
+2. inspect API logs and worker logs for the same `index_run_id`
+3. retry only after the failure class is understood
+
+Interpretation:
+
+- failed indexing is actionable because the run reached a terminal state
+- do not collapse this into a generic “try again later” diagnosis
+
+## Deployed smoke command behaves differently than the docs
+
+Cause:
+
+- the wrapper command and the direct Python entrypoint were historically inconsistent
+
+Fix:
+
+1. prefer the documented form:
+   `pnpm smoke:mcp:deployed -- --base-url <...> --project-id <...> --token <...>`
+2. if you are debugging the script itself, call the Python entrypoint directly
+3. compare the exact profile flags and token flags before assuming the runtime is at fault
+
+Interpretation:
+
+- the `pnpm ... -- ...` wrapper is the supported path
+- the direct Python call is a debugging fallback, not the primary operator workflow
+
 ## Optional prompts or resources do not appear
 
 Cause:

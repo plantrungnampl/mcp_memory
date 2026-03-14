@@ -12,6 +12,7 @@ import type {
   ProjectGraphPayload,
   ProjectTimelinePayload,
 } from "@/lib/api/types";
+import { getProjectIndexUiState } from "@/lib/project-index-summary";
 import { fetchQueryJson, normalizeQueryError } from "@/lib/query/fetch";
 import { projectQueryKeys } from "@/lib/query/keys";
 
@@ -201,6 +202,7 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
           generatedAt: "",
           mode: viewMode,
           emptyReason: "no_graph_data",
+          indexSummary: null,
           availableModes: ["concepts", "code"],
           nodePrimaryLabel: viewMode === "concepts" ? "Facts" : "Symbols",
           nodeSecondaryLabel: viewMode === "concepts" ? "Episodes" : "Files",
@@ -371,7 +373,7 @@ export function GraphPlaygroundPanel({ projectId }: GraphPlaygroundPanelProps) {
               {graphPayload?.emptyReason === "concepts_unavailable"
                 ? "No concept graph yet. Switch to Code Topology to inspect modules."
                 : graphPayload?.emptyReason === "no_ready_index"
-                  ? "Run indexing first to populate Code Topology."
+                  ? getProjectIndexUiState(graphPayload.indexSummary).body
                   : "No matching nodes for the current filters."}
             </div>
           ) : (

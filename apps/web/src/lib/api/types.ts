@@ -127,6 +127,21 @@ export type UsageAnalyticsPayload = {
 export type GraphEntityType = string;
 export type GraphViewMode = "concepts" | "code";
 export type GraphEmptyReason = "none" | "concepts_unavailable" | "no_ready_index" | "no_graph_data";
+export type ProjectIndexStatus = "missing" | "queued" | "running" | "stalled" | "ready" | "failed";
+export type ProjectIndexRecommendedAction = "start_index" | "wait" | "check_workers" | "retry" | "none";
+
+export type ProjectIndexSummary = {
+  status: ProjectIndexStatus;
+  currentRunId: string | null;
+  latestReadyAt: string | null;
+  queuedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  ageSeconds: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  recommendedAction: ProjectIndexRecommendedAction;
+};
 
 export type ProjectGraphHoverItem = {
   text: string;
@@ -157,6 +172,7 @@ export type ProjectGraphPayload = {
   generatedAt: string;
   mode: GraphViewMode;
   emptyReason: GraphEmptyReason;
+  indexSummary: ProjectIndexSummary | null;
   availableModes: GraphViewMode[];
   nodePrimaryLabel: string;
   nodeSecondaryLabel: string;
@@ -406,6 +422,7 @@ export type ProjectOpsDashboardPayload = {
   usageMonthly: UsageSummary | null;
   usageSeries: UsageSeries | null;
   overviewRow: ProjectOverviewRow | null;
+  indexSummary: ProjectIndexSummary | null;
   logs: ProjectApiLogRow[];
   exports: ProjectExport[];
 };

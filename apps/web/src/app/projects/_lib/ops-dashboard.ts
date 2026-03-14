@@ -3,6 +3,7 @@ import "server-only";
 import type { ProjectOpsDashboardPayload } from "@/lib/api/types";
 import {
   getConnection,
+  getProjectIndexSummary,
   getProjectApiLogs,
   getProjectExports,
   getProjectTokens,
@@ -25,10 +26,11 @@ export async function getProjectOpsDashboard(
     getProjectExports(user, projectId),
   ]);
 
-  const [usageSeriesResult, logsResult, overviewResult] = await Promise.allSettled([
+  const [usageSeriesResult, logsResult, overviewResult, indexSummaryResult] = await Promise.allSettled([
     getUsageSeries(user, projectId, { windowDays: 30, bucket: "day" }),
     getProjectApiLogs(user, projectId, { limit: 5 }),
     getProjectsOverview(user, { windowDays: 30 }),
+    getProjectIndexSummary(user, projectId),
   ]);
 
   const usageSeries = usageSeriesResult.status === "fulfilled" ? usageSeriesResult.value : null;
@@ -37,6 +39,7 @@ export async function getProjectOpsDashboard(
     overviewResult.status === "fulfilled"
       ? overviewResult.value.find((project) => project.id === projectId) ?? null
       : null;
+  const indexSummary = indexSummaryResult.status === "fulfilled" ? indexSummaryResult.value : null;
 
   return {
     generatedAt,
@@ -46,6 +49,7 @@ export async function getProjectOpsDashboard(
     usageMonthly,
     usageSeries,
     overviewRow,
+    indexSummary,
     logs,
     exports,
   };
