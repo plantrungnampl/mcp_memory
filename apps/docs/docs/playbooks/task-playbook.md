@@ -20,9 +20,10 @@ Required sequence:
 1. Call `viberecall_get_status`.
 2. Verify the project and runtime match the task.
 3. Call `viberecall_get_context_pack` with a concise task-shaped query.
-4. Inspect `status`, `context_mode`, `index_status`, `index_hint`, and `gaps`.
+4. Inspect `status`, `context_mode`, `index_status`, `index_hint`, `gaps`, `architecture_overview`, `architecture_map`, `related_modules`, `related_files`, `relevant_symbols`, and `citations`.
 5. If the task is entity-centric, call `viberecall_search_entities`.
 6. Only if the correct entity is known, call `viberecall_get_neighbors` or `viberecall_find_paths`.
+7. If the task is feature work or another architecture-sensitive change on an existing codebase, do not edit yet; acquire project overview first.
 
 Do not:
 
@@ -56,7 +57,7 @@ Do not save:
 - speculative theories
 - every code-reading note
 
-## 3. Before a large refactor or architecture-sensitive change
+## 3. Before a new feature, large refactor, or architecture-sensitive change on an existing repo
 
 Use this when:
 
@@ -67,12 +68,13 @@ Use this when:
 Required sequence:
 
 1. Call `viberecall_get_index_status`.
-2. If `get_context_pack` is already useful, keep working.
+2. If `get_context_pack` already gives enough code overview, inspect the repo locally and keep working.
 3. If the context is still stale or missing, decide whether the workflow is explicitly trusted for indexing.
 4. If the workflow is not explicitly trusted, stop and ask the human.
 5. If the workflow is trusted, call `viberecall_index_repo`.
 6. Wait for readiness.
 7. Refresh with `viberecall_get_context_pack`.
+8. For repo-local work, pair the refreshed pack with direct local repo inspection before editing code.
 
 Do not:
 

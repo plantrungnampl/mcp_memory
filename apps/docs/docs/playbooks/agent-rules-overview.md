@@ -51,6 +51,12 @@ The agent **must** inspect:
 - `index_status`
 - `index_hint`
 - any reported `gaps`
+- `architecture_overview`
+- `architecture_map`
+- `related_modules`
+- `related_files`
+- `relevant_symbols`
+- `citations`
 
 The agent **must not**:
 
@@ -59,6 +65,21 @@ The agent **must not**:
 - trigger `viberecall_index_repo` without an explicit trusted workflow
 
 `viberecall_get_context_pack` is designed to tell the agent whether useful context already exists. It is not a blanket instruction to index the repository.
+
+### 2a. Treat feature work on an existing codebase as overview-first
+
+The agent **must** treat these task classes as requiring project overview before implementation:
+
+- implementing a new feature in an existing repository
+- large refactors
+- architecture-sensitive changes
+- tasks that depend on current repo structure or recent code movement
+
+For repo-local agents, the safe default is hybrid:
+
+- use VibeRecall first for project, trust-boundary, and bounded context truth
+- inspect the local repository directly before editing
+- if code overview is still missing and the workflow is trusted, use `viberecall_get_index_status` and then `viberecall_index_repo`
 
 ### 3. Use narrow retrieval before broad retrieval
 

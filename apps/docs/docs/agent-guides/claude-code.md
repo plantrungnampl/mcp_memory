@@ -61,10 +61,11 @@ Avoid broad daily-driver exposure for privileged maintenance tools such as entit
 
 ### Start of task
 
-1. Call `viberecall_get_context_pack`.
-2. Inspect `context_mode`, `index_status`, and any `gaps` or `index_hint`.
-3. If the task revolves around a known component, service, or entity, call `viberecall_search_entities`.
-4. Use `viberecall_get_neighbors` only once the task is anchored on the right entity.
+1. Call `viberecall_get_status`.
+2. Call `viberecall_get_context_pack`.
+3. Inspect `context_mode`, `index_status`, `index_hint`, `gaps`, `architecture_overview`, `architecture_map`, `related_modules`, `related_files`, `relevant_symbols`, and `citations`.
+4. If the task revolves around a known component, service, or entity, call `viberecall_search_entities`.
+5. Use `viberecall_get_neighbors` only once the task is anchored on the right entity.
 
 ### During work
 
@@ -72,12 +73,13 @@ Avoid broad daily-driver exposure for privileged maintenance tools such as entit
 - use `viberecall_search_memory` for follow-up retrieval only when the task has shifted materially
 - avoid flooding the runtime with repeated broad searches
 
-### Before a code-heavy refactor
+### Before a new feature or code-heavy refactor on an existing repo
 
 1. Check `viberecall_get_index_status`.
-2. If `get_context_pack` is already `code_augmented` and the index is current, keep working.
-3. If `get_context_pack` is `memory_only` and you need repo structure or code citations, trigger or request `viberecall_index_repo`.
+2. If `get_context_pack` already gives enough code overview, inspect the repo locally and keep working.
+3. If the pack still lacks repo structure or code citations, trigger or request `viberecall_index_repo` only from a trusted workflow using an explicit Git source, workspace bundle, or local backend path.
 4. Retry the task context retrieval after the index is ready.
+5. For repo-local work, pair the refreshed pack with direct local repo inspection before editing code.
 
 ## Prompts and resources policy
 
@@ -96,6 +98,7 @@ If tools work and prompts do not appear, the platform is still usable.
 - Reusing a stale session after a restart.
 - Over-enabling write or admin tools in a normal developer profile.
 - Treating a `memory_only` context pack as a failed query instead of a fallback that may already be enough.
+- Treating feature work on an existing repo as if `memory_only` context were enough to start editing immediately.
 - Assuming the hosted server can inspect local uncommitted files directly.
 
 ## Local dirty workspace story

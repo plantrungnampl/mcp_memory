@@ -5,12 +5,13 @@ sidebar_position: 1
 
 This section is for teams using VibeRecall with AI coding agents rather than with a generic MCP client. The guidance is intentionally practical and conservative.
 
-## The four rules that matter most
+## The five rules that matter most
 
 1. Use remote HTTP as the default connection path for hosted VibeRecall.
 2. Treat tools as the required compatibility surface.
 3. Keep the default tool set small.
 4. Do not assume a hosted MCP server can see your local repository.
+5. Treat feature work on an existing codebase as an overview-first workflow.
 
 These rules exist because real clients differ. Some support both HTTP and stdio, some surface prompts and resources unevenly, and some handle reconnects or tool discovery more reliably than others.
 
@@ -41,6 +42,7 @@ This gives the agent enough surface to:
 - inspect lineage before trusting a fact
 - persist a meaningful observation
 - check whether code context is ready when the broad pack says it is missing
+- acquire repo overview before implementing a feature or large refactor
 
 It does not hand the agent every privileged or potentially noisy tool by default.
 
@@ -49,6 +51,16 @@ Important nuance:
 - `viberecall_get_context_pack` may return useful `memory_only` context even when no READY code index exists
 - that does not mean indexing failed
 - it means the agent should decide whether code structure is actually needed before triggering `viberecall_index_repo`
+- if the task is feature work on an existing codebase and code structure is still missing, the agent should treat overview acquisition as the next required step rather than optional follow-up
+
+## Repo-local feature work
+
+For agents running directly in a repository, the safest default is hybrid:
+
+- call `viberecall_get_status` and `viberecall_get_context_pack` first
+- inspect the overview fields in the returned pack
+- read the local repo directly with shell/search/runtime tools before editing
+- if code overview is still missing and the workflow is trusted, use `viberecall_get_index_status` and then `viberecall_index_repo`
 
 ## Optional capabilities are exactly that
 

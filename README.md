@@ -239,8 +239,14 @@ To connect an IDE or coding agent to VibeRecall:
 
 6. Verify the connection by calling:
    - `viberecall_get_status`
+   - `viberecall_get_context_pack`
    - `viberecall_save`
    - `viberecall_search`
+
+7. For feature work on an existing repository, treat project overview as a required pre-implementation step:
+   - inspect `context_mode`, `index_status`, `index_hint`, `gaps`, `architecture_overview`, `architecture_map`, `related_modules`, and `related_files`
+   - if code overview is still missing and the workflow is trusted, call `viberecall_get_index_status` and then `viberecall_index_repo` using an explicit Git source, workspace bundle, or local backend path
+   - for repo-local agents, pair that VibeRecall context with direct local repo inspection before editing code
 
 Important transport note:
 
@@ -317,6 +323,12 @@ Deployed MCP smoke:
 pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <project_id> --token <plaintext_mcp_token>
 ```
 
+If your shell forwards a literal `--` into the Python entrypoint, use the direct fallback instead:
+
+```bash
+uv run --project apps/mcp-api python apps/mcp-api/scripts/smoke_deployed_mcp.py --base-url https://api.example.com --project-id <project_id> --token <plaintext_mcp_token>
+```
+
 The deployed smoke runner now supports staged profiles:
 
 - `core` by default for safe memory/canonical coverage
@@ -331,6 +343,7 @@ Examples:
 pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <project_id> --token <shared_token> --profile core --profile ops
 pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <project_id> --profile graph --graph-token <graph_token>
 pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <project_id> --profile index --index-token <index_token> --index-repo-url https://github.com/example/smoke-repo.git --index-ref main --index-repo-name smoke-repo
+pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <project_id> --profile index --index-token <index_token> --index-local-repo-path /absolute/path/to/local-repo --index-repo-name local-repo
 pnpm smoke:mcp:deployed -- --base-url https://api.example.com --project-id <project_id> --profile resolution --resolution-token <resolution_token>
 ```
 

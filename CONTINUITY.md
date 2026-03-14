@@ -16,6 +16,8 @@
 - Public docs must remain a separate static site; `apps/web` should only keep `/docs` as a compatibility redirect.
 
 ## Key decisions
+- On 2026-03-14, the AI-agent rules/docs pass was narrowed to a docs-and-policy sync only: no MCP contract change, no new overview tool, and no widening of the public surface in this pass.
+- On 2026-03-14, repo-local and public agent guidance were aligned on an overview-first policy for feature work on existing codebases: start with `viberecall_get_status` + `viberecall_get_context_pack`, inspect the overview fields explicitly, use local repo inspection as the code source of truth for repo-local agents, and treat indexing as the next required step only inside a trusted workflow when code overview is still missing.
 - On 2026-03-14, the `/projects` active-project reset bug was narrowed to `apps/web` client selection logic: `ProjectsWorkspaceNav` wrote `projects[0]` into `localStorage` on the directory route before stored-project restoration ran, so clicking back to `Projects` could replace the previously selected project with the first row. The smallest safe fix is to separate explicit selection from fallback selection, preserve `?project=` in the `Projects` nav href, and guard directory-route persistence until query restoration has resolved.
 - On 2026-03-14, the local real-service runtime validation path was tightened to run `apps/mcp-api/tests/test_runtime_e2e_celery.py` in its own pytest process. Mixing that file into the broader MCP pytest process still causes false-negative async DB engine cross-loop failures from earlier tests.
 - On 2026-03-14, the `viberecall_pin_memory` runtime defect was traced to `canonical_memory.pin_canonical_memory(...)` passing the same `target_id` as both `fact_version_id` and `fact_group_id` into `get_current_fact_by_version_or_group(...)`, which makes the repo helper self-filter via `AND`; the safe fix is to resolve by version id first and fall back to group id, without changing the repo helper contract.
@@ -204,6 +206,7 @@
 - Verified `pnpm --dir apps/docs build` after the docs sweep.
 
 ## Now
+- The current docs/rules pass is updating repo-local and public guidance so "implement a new feature on an existing repo" is treated as a project-overview workflow rather than generic safe retrieval.
 - The web app now preserves the selected project when navigating back to the `Projects` directory by carrying the effective project id through `?project=` and by restoring stored selection before any directory-route fallback can overwrite it.
 - The repository no longer needs to carry the two large spec folders in version control; they are being treated as local-only reference material via `.gitignore`.
 - The public docs rules set is now stricter and more explicit for AI-agent operators, especially around startup flow, trust boundaries, local unpublished code, and privileged MCP usage.

@@ -1,5 +1,4 @@
 # Repository Guidelines
-
 ## Working model
 
 - The main Codex thread owns requirements, constraints, and the final answer.
@@ -105,3 +104,49 @@ Do not commit secrets. Copy `.env.example` to `.env` and keep `CONTROL_PLANE_INT
 3. why this fix is the smallest safe fix
 4. what validation ran
 5. what remains unverified
+Use VibeRecall as the project memory source for this repository.
+
+Connection rules:
+- Treat tools as the required integration surface.
+- Do not assume prompts or resources are available.
+- Start each meaningful task by calling viberecall_get_status to verify the active project and runtime health.
+
+Default tool behavior:
+- After viberecall_get_status succeeds, start meaningful tasks with viberecall_get_context_pack.
+- Inspect `context_mode`, `index_status`, `index_hint`, `gaps`, `architecture_overview`, `architecture_map`, `related_modules`, `related_files`, `relevant_symbols`, and `citations` before deciding whether more repo context is needed.
+- Use viberecall_search_entities only when the task is entity-centric.
+- Use viberecall_get_neighbors only after the relevant entity is known.
+- Save meaningful discoveries with viberecall_save_episode.
+- Check viberecall_get_index_status before requesting viberecall_index_repo.
+
+Project overview rules:
+- For feature work, large refactors, and other architecture-sensitive changes on an existing codebase, treat project overview as required before implementation.
+- For repo-local agents, use a hybrid flow: get runtime/context truth from VibeRecall first, then inspect the local repository directly with shell/search/runtime tools before editing.
+- If get_context_pack still lacks code overview for a task that depends on repo structure, use viberecall_get_index_status and then viberecall_index_repo only within an explicitly trusted workflow.
+- For local unpublished code, use an explicit Git source, workspace bundle flow, or local backend path; do not assume the hosted MCP server can read the local workspace directly.
+
+Safety rules:
+- Do not spam repeated broad searches without changing scope or query.
+- Do not assume the hosted MCP server can read the local repository path.
+- For local dirty-worktree indexing, use a Git source or workspace bundle flow.
+- Do not call viberecall_index_repo unless the workflow is explicitly trusted and code context is actually stale or missing.
+- Do not use merge or split entity tools unless the task is explicitly operator-approved.
+- Reconnect the MCP server if a session becomes stale.
+- Stop and ask the human if the active project, environment, token scope, or trust boundary is unclear.
+- Stop and ask the human if the task appears to require privileged maintenance tools that are not already explicitly approved.
+
+When correcting stale knowledge:
+- Inspect lineage with viberecall_explain_fact before using viberecall_update_fact.
+- Do not use viberecall_update_fact unless fact correction is part of an explicitly trusted workflow.
+
+Preferred daily-driver tools:
+- viberecall_get_status
+- viberecall_get_context_pack
+- viberecall_search_memory
+- viberecall_get_fact
+- viberecall_get_facts
+- viberecall_search_entities
+- viberecall_get_neighbors
+- viberecall_explain_fact
+- viberecall_save_episode
+- viberecall_get_index_status

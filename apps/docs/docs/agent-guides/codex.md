@@ -81,10 +81,11 @@ Keep disabled by default in normal developer profiles:
 
 ### Start of task
 
-1. Call `viberecall_get_context_pack` with the task description.
-2. Inspect `context_mode`, `index_status`, and any `gaps` or `index_hint`.
-3. If the task is entity-centric, call `viberecall_search_entities`.
-4. Use `viberecall_get_neighbors` only after you know which entity matters.
+1. Call `viberecall_get_status`.
+2. Call `viberecall_get_context_pack` with the task description.
+3. Inspect `context_mode`, `index_status`, `index_hint`, `gaps`, `architecture_overview`, `architecture_map`, `related_modules`, `related_files`, `relevant_symbols`, and `citations`.
+4. If the task is entity-centric, call `viberecall_search_entities`.
+5. Use `viberecall_get_neighbors` only after you know which entity matters.
 
 ### During investigation
 
@@ -92,12 +93,13 @@ Keep disabled by default in normal developer profiles:
 - avoid saving every intermediate thought
 - prefer one refined context query over repeated broad searches
 
-### Before a large refactor
+### Before a new feature or large refactor on an existing repo
 
 1. Call `viberecall_get_index_status`.
-2. If `get_context_pack` was already `code_augmented` and the index looks current, keep working.
-3. If `get_context_pack` was `memory_only` and the task needs code structure, trigger `viberecall_index_repo` only from a trusted workflow.
-4. Wait for the index to become ready before assuming code context is accurate.
+2. If `get_context_pack` already gives enough code overview, inspect the local repo directly and keep working.
+3. If the pack still lacks code structure and the workflow is trusted, trigger `viberecall_index_repo` using an explicit Git source, workspace bundle, or local backend path.
+4. Wait for the index to become ready, then rerun `viberecall_get_context_pack`.
+5. For repo-local work, pair the refreshed pack with direct local repo inspection before editing code.
 
 ### When correcting a stale belief
 
@@ -110,6 +112,7 @@ Keep disabled by default in normal developer profiles:
 - Enabling the entire tool surface when only a handful of tools are needed.
 - Spamming `search_memory` instead of starting with `get_context_pack`.
 - Treating `memory_only` as a broken response instead of a usable fallback.
+- Treating feature work on an existing repo as if memory-only context were sufficient by itself.
 - Using graph tools before identifying the relevant entity.
 - Reusing a dead session after the backend restarts.
 - Assuming the hosted core can read the local repository directly.

@@ -41,6 +41,7 @@ Recommended additions on top of Profile A:
 Use when:
 
 - the agent often works on code-heavy refactors
+- the agent implements new features on an existing codebase
 - repository context changes materially between tasks
 - the user explicitly trusts the agent to trigger indexing
 
@@ -54,6 +55,7 @@ Operational note:
 
 - `viberecall_index_repo` is powerful and useful, but it should not be enabled casually if the team is not ready for code-index maintenance workflows
 - `viberecall_get_context_pack` can still return useful `memory_only` context when no READY code index exists, so Profile C should be added when the agent truly needs repo structure or code citations rather than broad task context alone
+- if the agent is expected to add features to an existing repository, treat Profile C behavior as the normal baseline rather than an edge-case add-on
 
 ## Profile D: Operator or admin
 
@@ -80,8 +82,10 @@ This profile should not be the default for a general coding assistant.
 If you are unsure:
 
 - start with Profile A or B
-- add indexing only after you see a real need
+- add indexing only after you see a real need, unless the agent is expected to implement new features on an existing codebase
 - add admin maintenance tools only for trusted operator workflows
+
+If the agent's job is "understand the current repo and implement changes safely", start from Profile C instead of A or B.
 
 This keeps the blast radius small and makes agent behavior easier to review.
 

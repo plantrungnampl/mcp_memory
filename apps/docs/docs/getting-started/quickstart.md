@@ -8,8 +8,9 @@ This is the fastest path to connect a coding agent to VibeRecall and verify the 
 
 1. authenticate
 2. discover tools
-3. write one observation
-4. retrieve it again through the public memory surface
+3. read one bounded context pack
+4. write one observation
+5. retrieve it again through the public memory surface
 
 If you only read one page before trying the product, make it this one.
 
@@ -34,6 +35,7 @@ By the end of this quickstart, you should know that:
 
 - your token is valid for the target project
 - your client can negotiate the MCP transport correctly
+- the runtime can return bounded task context
 - the runtime can accept a memory write
 - the canonical memory read path can retrieve recent context
 - you are using the public surface rather than a private control-plane route
@@ -112,9 +114,10 @@ Only after that should you introduce richer rules, indexing, or local workspace 
 After your MCP client connects and discovers tools, run these calls in order:
 
 1. `viberecall_get_status`
-2. `viberecall_save`
-3. `viberecall_search`
-4. `viberecall_get_facts`
+2. `viberecall_get_context_pack`
+3. `viberecall_save`
+4. `viberecall_search`
+5. `viberecall_get_facts`
 
 ### Suggested first write
 
@@ -133,6 +136,7 @@ Use a short, searchable observation:
 ### Why this order matters
 
 - `viberecall_get_status` proves the runtime is reachable and bound to your project.
+- `viberecall_get_context_pack` proves the runtime can return bounded task context before you start editing or writing memory.
 - `viberecall_save` proves the write path accepts input.
 - `viberecall_search` proves recent retrieval works through the public memory surface.
 - `viberecall_get_facts` proves canonical listing works without relying on a search-only view.
@@ -142,6 +146,7 @@ Use a short, searchable observation:
 You are looking for the following outcomes:
 
 - `viberecall_get_status` reports the current `project_id` and backend status
+- `viberecall_get_context_pack` returns a structured pack instead of a transport or permission error
 - the save call is accepted instead of rejected at auth or transport level
 - the follow-up search returns your quickstart note or closely related context
 - fact listing returns structured JSON rather than a transport or permission error
@@ -153,7 +158,8 @@ If one step fails, stop there and diagnose it. Do not assume a later tool result
 Read the first smoke path like this:
 
 - if discovery fails, the problem is transport or auth
-- if status works but save fails, the problem is usually input shape, permissions, or a backend dependency
+- if status works but context retrieval fails, the problem is usually scope, permissions, or a missing or stale session
+- if status and context work but save fails, the problem is usually input shape, permissions, or a backend dependency
 - if save works but search does not surface useful context, the problem is usually query choice or runtime backing services
 - if fact listing works, you have validated the canonical read side rather than only a best-effort search
 
@@ -203,7 +209,8 @@ After you have a clean first run:
 2. read [MCP Tool Surface](/mcp-reference/tool-surface) to choose a narrower daily-driver subset
 3. choose an [Installation Profile](/agent-guides/installation-profiles) for your agent
 4. add a rules template from [Playbooks & Rules](/playbooks/agent-rules-overview)
-5. only then enable indexing or local workspace bridge patterns if your workflow truly needs them
+5. if the agent will implement features on an existing repo, treat overview-first workflow as mandatory before editing
+6. only then enable indexing or local workspace bridge patterns if your workflow truly needs them
 
 That order keeps rollout reversible and easier to debug.
 

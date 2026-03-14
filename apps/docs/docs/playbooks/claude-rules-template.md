@@ -19,8 +19,10 @@ Connection rules:
 
 Startup rules:
 - After viberecall_get_status succeeds, call viberecall_get_context_pack with a concise task-shaped query.
-- Inspect status, context_mode, index_status, index_hint, and gaps before making any indexing decision.
+- Inspect status, context_mode, index_status, index_hint, gaps, architecture_overview, architecture_map, related_modules, related_files, relevant_symbols, and citations before making any indexing decision.
 - Do not assume missing prompts or resources means the platform is unusable.
+- For feature work, large refactors, and other architecture-sensitive changes on an existing codebase, treat project overview as required before implementation.
+- For repo-local work, use a hybrid flow: VibeRecall first for bounded context, then direct local repo inspection before editing.
 
 Default retrieval rules:
 - Use viberecall_search_memory for concrete memory lookups.
@@ -38,6 +40,7 @@ Write rules:
 Indexing rules:
 - Call viberecall_get_index_status before viberecall_index_repo.
 - Do not trigger viberecall_index_repo unless the workflow is explicitly trusted and get_context_pack still indicates stale or missing code context.
+- If the task is feature work on an existing codebase and overview is still missing, treat indexing as the next required step inside a trusted workflow rather than optional cleanup.
 - Do not assume the hosted MCP server can inspect local uncommitted files directly.
 - For local unpublished code, require an explicit Git-reachable source, workspace-bundle flow, or local backend path.
 - If no explicit path exists, stop and ask the human.
