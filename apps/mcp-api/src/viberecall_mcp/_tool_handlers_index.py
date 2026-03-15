@@ -108,7 +108,11 @@ async def handle_get_context_pack(
 
     query = str(arguments["query"])
     limit = int(arguments.get("limit", 12))
-    requested_scope, scope_applied = root._resolve_memory_scope(arguments)
+    requested_scope, scope_applied, scoped_project_ids = await root._resolve_memory_scope_context(
+        session=arguments["session"],
+        project_id=project_id,
+        arguments=arguments,
+    )
     context = await root.build_context_pack(
         session=arguments["session"],
         project_id=project_id,
@@ -122,9 +126,9 @@ async def handle_get_context_pack(
     if not has_ready_index:
         fallback_fact_results = [
             item
-            for item in await root.search_canonical_memory(
+            for item in await root._search_canonical_memory_scoped(
                 arguments["session"],
-                project_id=project_id,
+                project_ids=scoped_project_ids,
                 query=query,
                 filters=None,
                 sort="RELEVANCE",
@@ -133,23 +137,18 @@ async def handle_get_context_pack(
             )
             if item.get("kind") == "fact"
         ][:limit]
-        fallback_entity_rows = list(
-            (
-                await root.search_canonical_entities(
-                    arguments["session"],
-                    project_id=project_id,
-                    query=query,
-                    entity_kinds=None,
-                    salience_classes=None,
-                    limit=max(limit, 1),
-                )
-            ).get("entities")
-            or []
-        )[:limit]
+        fallback_entity_rows = await root._search_canonical_entities_scoped(
+            arguments["session"],
+            project_ids=scoped_project_ids,
+            query=query,
+            entity_kinds=None,
+            salience_classes=None,
+            limit=max(limit, 1),
+        )
 
-    timeline_rows = await root.list_timeline_episodes(
+    timeline_rows = await root._list_timeline_episodes_scoped(
         arguments["session"],
-        project_id=project_id,
+        project_ids=scoped_project_ids,
         from_time=None,
         to_time=None,
         limit=max(limit * 5, 50),
@@ -240,6 +239,8 @@ async def handle_get_context_pack(
     gaps = list(context.get("gaps") or [])
     if not has_ready_index:
         gaps.append("No READY code index snapshot; context pack is memory-only until viberecall_index_repo completes.")
+    if scope_applied != "project":
+        gaps.append("Code architecture and code citations remain scoped to the current project even when memory_scope is broader.")
     context["gaps"] = gaps
 
     working_memory = None

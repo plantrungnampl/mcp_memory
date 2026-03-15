@@ -74,7 +74,8 @@ uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
 - Canonical MCP scope surface now includes:
   - `memory:read`, `memory:write`, `facts:write`, `entities:read`, `graph:read`
   - `index:read`, `index:run`, `resolution:write`, `ops:read`, `delete:write`
-  - legacy aliases remain accepted for compatibility on some surfaces
+  - legacy `codeindex:read` and `codeindex:write` remain accepted for compatibility on index surfaces only
+  - `memory:read` no longer widens into `entities:read`, `graph:read`, `index:read`, or `ops:read`
 - Graphiti runtime settings:
   - `GRAPHITI_API_KEY` is required to enable Graphiti sync.
   - `GRAPHITI_LLM_MODEL` defaults to `gpt-4.1-mini`.
@@ -96,6 +97,10 @@ uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
   - `INDEX_REPO_ALLOWED_ROOTS` is an optional comma-separated allowlist for `viberecall_index_repo`.
   - When unset or blank, indexing is limited to the monorepo root by default.
   - To index another local repo in development, add its absolute path to `INDEX_REPO_ALLOWED_ROOTS`.
+  - `INDEX_REMOTE_GIT_ENABLED=false` by default; hosted/public deployments should keep it disabled unless outbound git fetches are explicitly intended.
+  - If remote git indexing is enabled, `INDEX_GIT_ALLOWED_HOSTS` must explicitly allow each HTTPS host.
+  - Workspace bundles are validated against compressed upload size, per-file extracted size, and cumulative extracted size.
+  - Remote git URLs must not embed credentials or include query/fragment tokens; use `credential_ref` instead.
 - `viberecall_get_context_pack` is a dual-mode retrieval surface:
   - `context_mode=code_augmented` when a READY code index snapshot exists
   - `context_mode=memory_only` when no READY code index exists but relevant memory still provides usable context
@@ -340,6 +345,7 @@ Notes:
 
 - The smoke runner uses explicit token-to-profile mapping; if a profile token is not provided it falls back to `--token`.
 - `index` is intentionally gated and should only use `--index-repo-url/--index-ref` when `INDEX_REMOTE_GIT_ENABLED=true` on the target runtime.
+- When remote git indexing is enabled, the target runtime must also allowlist the repo host via `INDEX_GIT_ALLOWED_HOSTS`.
 - `--index-local-repo-path` uses the runtime `/p/{project_id}/index-bundles` upload route plus `repo_source.type=workspace_bundle`, so it does not depend on remote git indexing being enabled.
 - `resolution` is intentionally destructive within the smoke project and should use a dedicated test project/token.
 - If `index` is accepted but stays `QUEUED`, treat that as a runtime/worker readiness issue, not a client packaging issue.

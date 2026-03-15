@@ -50,6 +50,19 @@ def test_validate_workspace_bundle_archive_rejects_symlink_entries() -> None:
         code_index.validate_workspace_bundle_archive(payload.getvalue())
 
 
+def test_validate_workspace_bundle_archive_rejects_cumulative_uncompressed_size(monkeypatch) -> None:
+    monkeypatch.setattr(code_index.settings, "index_bundle_max_bytes", 128)
+    payload = _build_bundle(
+        members={
+            "src/a.py": "a" * 70,
+            "src/b.py": "b" * 70,
+        }
+    )
+
+    with pytest.raises(ValueError, match="total extracted size exceeds limit"):
+        code_index.validate_workspace_bundle_archive(payload)
+
+
 def test_materialize_index_emits_expected_entities_chunks_and_stats() -> None:
     materialized = code_index._materialize_index(
         project_id="proj_demo",

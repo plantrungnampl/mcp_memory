@@ -553,6 +553,7 @@ async def test_code_index_snapshot_persists_text_arrays_for_asyncpg() -> None:
 
 def test_normalize_repo_source_rejects_unknown_git_credential_ref(monkeypatch) -> None:
     monkeypatch.setattr(code_index.settings, "index_remote_git_enabled", True)
+    monkeypatch.setattr(code_index.settings, "index_git_allowed_hosts", "github.com")
     monkeypatch.setattr(code_index.settings, "index_git_credential_refs_json", '{"known":{"allowed_hosts":["github.com"],"token":"secret"}}')
     with pytest.raises(ValueError, match="Unknown git credential_ref"):
         code_index.normalize_repo_source(
@@ -567,6 +568,7 @@ def test_normalize_repo_source_rejects_unknown_git_credential_ref(monkeypatch) -
 
 def test_normalize_repo_source_rejects_host_mismatch_for_git_credential_ref(monkeypatch) -> None:
     monkeypatch.setattr(code_index.settings, "index_remote_git_enabled", True)
+    monkeypatch.setattr(code_index.settings, "index_git_allowed_hosts", "gitlab.com")
     monkeypatch.setattr(code_index.settings, "index_git_credential_refs_json", '{"known":{"allowed_hosts":["github.com"],"token":"secret"}}')
     with pytest.raises(ValueError, match="is not allowed for host"):
         code_index.normalize_repo_source(
@@ -589,6 +591,43 @@ def test_normalize_repo_source_rejects_remote_git_when_disabled(monkeypatch) -> 
                 "ref": "main",
             }
         )
+
+
+def test_normalize_repo_source_rejects_unallowlisted_git_host(monkeypatch) -> None:
+    monkeypatch.setattr(code_index.settings, "index_remote_git_enabled", True)
+    monkeypatch.setattr(code_index.settings, "index_git_allowed_hosts", "github.com")
+    with pytest.raises(ValueError, match="is not allowlisted"):
+        code_index.normalize_repo_source(
+            {
+                "type": "git",
+                "remote_url": "https://gitlab.com/acme/repo.git",
+                "ref": "main",
+            }
+        )
+
+
+def test_normalize_repo_source_rejects_git_urls_with_query_or_fragment(monkeypatch) -> None:
+    monkeypatch.setattr(code_index.settings, "index_remote_git_enabled", True)
+    monkeypatch.setattr(code_index.settings, "index_git_allowed_hosts", "github.com")
+    with pytest.raises(ValueError, match="must not include query parameters or fragments"):
+        code_index.normalize_repo_source(
+            {
+                "type": "git",
+                "remote_url": "https://github.com/acme/repo.git?token=secret#frag",
+                "ref": "main",
+            }
+        )
+
+
+def test_authenticated_git_remote_url_does_not_embed_credential_ref_secrets(monkeypatch) -> None:
+    monkeypatch.setattr(
+        code_index.settings,
+        "index_git_credential_refs_json",
+        '{"known":{"allowed_hosts":["github.com"],"token":"secret"}}',
+    )
+    remote_url = "https://github.com/acme/repo.git"
+
+    assert code_index._authenticated_git_remote_url(remote_url, "known") == remote_url
 
 
 async def test_probe_runtime_dependencies_checks_redis_and_celery(monkeypatch) -> None:

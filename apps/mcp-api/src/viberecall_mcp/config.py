@@ -142,6 +142,7 @@ class Settings(BaseSettings):
     index_repo_allowed_roots: str = ""
     index_bundle_max_bytes: int = 52_428_800
     index_remote_git_enabled: bool = False
+    index_git_allowed_hosts: str = ""
     index_git_credential_refs_json: str = "{}"
     operation_dispatch_retry_limit: int = 8
     export_storage_mode: Literal["local"] = "local"
@@ -273,6 +274,19 @@ class Settings(BaseSettings):
                 "token": token,
             }
         return normalized
+
+    def resolved_index_git_allowed_hosts(self) -> tuple[str, ...]:
+        raw = self.index_git_allowed_hosts.strip()
+        if not raw:
+            return ()
+
+        hosts: list[str] = []
+        for chunk in raw.replace("\n", ",").split(","):
+            candidate = chunk.strip().lower()
+            if not candidate:
+                continue
+            hosts.append(candidate)
+        return tuple(hosts)
 
 
 @lru_cache

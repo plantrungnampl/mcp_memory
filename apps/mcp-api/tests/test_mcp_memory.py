@@ -324,6 +324,71 @@ def test_search_memory_prefers_exact_match_over_pinned_fuzzy_match(monkeypatch) 
     assert payload["result"]["facts"][1]["salience_class"] == "PINNED"
 
 
+def test_search_memory_honors_resolved_memory_scope(monkeypatch) -> None:
+    episode_store = {}
+    setup_app(monkeypatch, make_token(plan="free"), episode_store)
+
+    async def fake_resolve_scope(_session, *, project_id: str, requested_scope: str):
+        assert project_id == "proj_test"
+        assert requested_scope == "linked"
+        return ["proj_test", "proj_linked"], "linked"
+
+    async def fake_search_canonical_memory(
+        _session,
+        *,
+        project_id: str,
+        query: str,
+        filters,
+        sort: str,
+        limit: int,
+        offset: int,
+    ) -> list[dict]:
+        _ = (query, filters, sort, limit, offset)
+        return [
+            {
+                "kind": "fact",
+                "fact": {
+                    "fact_version_id": f"factv_{project_id}",
+                    "fact_group_id": f"factg_{project_id}",
+                    "statement": f"Fact from {project_id}",
+                    "valid_at": "2026-03-10T10:00:00Z",
+                },
+                "entities": [{"entity_id": f"ent_{project_id}", "name": project_id, "type": "Project"}],
+                "provenance": {},
+                "score": 0.8,
+            }
+        ]
+
+    monkeypatch.setattr(tool_handlers, "resolve_memory_scope_project_ids", fake_resolve_scope)
+    monkeypatch.setattr(tool_handlers, "search_canonical_memory", fake_search_canonical_memory)
+
+    with TestClient(create_app()) as client:
+        session_id = initialize_session(client, "proj_test")
+        response = client.post(
+            "/p/proj_test/mcp",
+            headers=mcp_headers(session_id),
+            json={
+                "jsonrpc": "2.0",
+                "id": "search-linked-scope",
+                "method": "tools/call",
+                "params": {
+                    "name": "viberecall_search_memory",
+                    "arguments": {"query": "Fact", "limit": 10, "memory_scope": "linked"},
+                },
+            },
+        )
+
+    teardown_app()
+    payload = parse_result(response)
+    assert payload["ok"] is True
+    assert payload["result"]["scope_requested"] == "linked"
+    assert payload["result"]["scope_applied"] == "linked"
+    assert [item["fact_group_id"] for item in payload["result"]["facts"]] == [
+        "factg_proj_test",
+        "factg_proj_linked",
+    ]
+
+
 def test_search_memory_boosts_and_filters_by_salience_class(monkeypatch) -> None:
     episode_store = {}
     setup_app(monkeypatch, make_token(plan="free"), episode_store)
@@ -811,6 +876,81 @@ def test_save_large_content_uses_content_ref(monkeypatch) -> None:
         assert stored["content_ref"] == f"projects/proj_test/episodes/{episode_id}.txt"
 
     teardown_app()
+
+
+def test_save_large_content_cleans_up_object_when_precommit_step_fails(monkeypatch) -> None:
+    episode_store = {}
+    setup_app_celery_transport(monkeypatch, make_token(), episode_store)
+    monkeypatch.setattr(tool_handlers.settings, "raw_episode_inline_max_bytes", 8)
+    deleted: list[str] = []
+
+    async def fake_create_episode(*_args, **_kwargs):
+        raise RuntimeError("boom before commit")
+
+    async def fake_delete_object(*, object_key: str) -> bool:
+        deleted.append(object_key)
+        return True
+
+    monkeypatch.setattr(tool_handlers, "create_episode", fake_create_episode)
+    monkeypatch.setattr(tool_handlers, "delete_object", fake_delete_object)
+
+    with TestClient(create_app()) as client:
+        session_id = initialize_session(client, "proj_test")
+        response = client.post(
+            "/p/proj_test/mcp",
+            headers=mcp_headers(session_id, **{"Idempotency-Key": "idem-large-cleanup"}),
+            json={
+                "jsonrpc": "2.0",
+                "id": "save-large-cleanup",
+                "method": "tools/call",
+                "params": {
+                    "name": "viberecall_save",
+                    "arguments": {"content": "A" * 64},
+                },
+            },
+        )
+
+    teardown_app()
+    payload = parse_result(response)
+    assert payload["ok"] is False
+    assert deleted and deleted[0].startswith("projects/proj_test/episodes/")
+
+
+def test_save_returns_success_when_idempotent_persist_fails_after_commit(monkeypatch) -> None:
+    episode_store = {}
+    setup_app(monkeypatch, make_token(plan="free"), episode_store)
+    released: list[str] = []
+
+    async def fake_persist(**_kwargs):
+        raise RuntimeError("idempotency store unavailable")
+
+    async def fake_release(**kwargs):
+        released.append(str(kwargs["idempotency_key"]))
+
+    monkeypatch.setattr(tool_handlers, "persist_idempotent_response", fake_persist)
+    monkeypatch.setattr(tool_handlers, "release_idempotency_slot", fake_release)
+
+    with TestClient(create_app()) as client:
+        session_id = initialize_session(client, "proj_test")
+        response = client.post(
+            "/p/proj_test/mcp",
+            headers=mcp_headers(session_id, **{"Idempotency-Key": "idem-save-persist-fail"}),
+            json={
+                "jsonrpc": "2.0",
+                "id": "save-persist-fail",
+                "method": "tools/call",
+                "params": {
+                    "name": "viberecall_save",
+                    "arguments": {"content": "persist failure should not fail request"},
+                },
+            },
+        )
+
+    teardown_app()
+    payload = parse_result(response)
+    assert payload["ok"] is True
+    assert payload["result"]["status"] == "ACCEPTED"
+    assert released == []
 def test_save_uses_rate_limit_and_keeps_quota_non_blocking(monkeypatch) -> None:
     episode_store = {}
     setup_app(monkeypatch, make_token(plan="free"), episode_store)

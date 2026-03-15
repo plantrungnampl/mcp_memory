@@ -8,6 +8,7 @@ from tests.support.mcp_harness import *
 @pytest.fixture(autouse=True)
 def enable_remote_git_indexing_for_legacy_tests(monkeypatch) -> None:
     monkeypatch.setattr(code_index.settings, "index_remote_git_enabled", True)
+    monkeypatch.setattr(code_index.settings, "index_git_allowed_hosts", "example.com")
 
 
 def test_free_plan_index_and_context_pack_flow(monkeypatch, tmp_path: Path) -> None:
@@ -749,6 +750,75 @@ def test_get_context_pack_returns_memory_only_fallback_without_ready_index(monke
     assert payload["result"]["architecture_overview"].startswith("Memory-only context")
     assert any(item["source_type"] == "canonical_fact" for item in payload["result"]["citations"])
     assert any(item["source_type"] == "timeline_episode" for item in payload["result"]["citations"])
+
+
+def test_get_context_pack_reports_project_only_code_boundary_for_broader_memory_scope(monkeypatch) -> None:
+    episode_store = {}
+    setup_app(monkeypatch, make_token(plan="free"), episode_store)
+
+    async def fake_resolve_scope(_session, *, project_id: str, requested_scope: str):
+        assert project_id == "proj_test"
+        assert requested_scope == "linked"
+        return ["proj_test", "proj_linked"], "linked"
+
+    async def fake_build_context_pack(*, session, project_id: str, query: str, limit: int) -> dict:
+        _ = (session, query, limit)
+        return {
+            "status": "READY",
+            "context_mode": "code_augmented",
+            "index_status": "READY",
+            "index_hint": None,
+            "query": query,
+            "architecture_overview": "Current project architecture",
+            "architecture_map": {
+                "indexed_at": None,
+                "repo_path": project_id,
+                "summary": {
+                    "file_count": 1,
+                    "symbol_count": 1,
+                    "entity_count": 1,
+                    "relationship_count": 0,
+                    "chunk_count": 1,
+                },
+                "top_modules": [],
+                "top_files": [],
+            },
+            "relevant_symbols": [],
+            "related_modules": [],
+            "related_files": [],
+            "citations": [],
+            "gaps": [],
+        }
+
+    async def fake_list_timeline(*_args, **_kwargs) -> list[dict]:
+        return []
+
+    monkeypatch.setattr(tool_handlers, "resolve_memory_scope_project_ids", fake_resolve_scope)
+    monkeypatch.setattr(tool_handlers, "build_context_pack", fake_build_context_pack)
+    monkeypatch.setattr(tool_handlers, "list_timeline_episodes", fake_list_timeline)
+
+    with TestClient(create_app()) as client:
+        session_id = initialize_session(client, "proj_test")
+        response = client.post(
+            "/p/proj_test/mcp",
+            headers=mcp_headers(session_id),
+            json={
+                "jsonrpc": "2.0",
+                "id": "context-linked-scope",
+                "method": "tools/call",
+                "params": {
+                    "name": "viberecall_get_context_pack",
+                    "arguments": {"query": "architecture", "limit": 5, "memory_scope": "linked"},
+                },
+            },
+        )
+
+    teardown_app()
+    payload = parse_result(response)
+    assert payload["ok"] is True
+    assert payload["result"]["scope_requested"] == "linked"
+    assert payload["result"]["scope_applied"] == "linked"
+    assert any("current project" in gap for gap in payload["result"]["gaps"])
 
 
 def test_get_context_pack_stays_empty_without_index_or_memory(monkeypatch) -> None:

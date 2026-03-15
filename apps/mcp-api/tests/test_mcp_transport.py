@@ -74,13 +74,13 @@ def test_tools_list_filters_tools_by_token_scope(monkeypatch) -> None:
     assert response.status_code == 200
     tool_names = [tool["name"] for tool in parse_mcp_event(response)["result"]["tools"]]
     assert "viberecall_search_memory" in tool_names
-    assert "viberecall_search_entities" in tool_names
-    assert "viberecall_resolve_reference" in tool_names
-    assert "viberecall_get_neighbors" in tool_names
-    assert "viberecall_find_paths" in tool_names
     assert "viberecall_explain_fact" in tool_names
-    assert "viberecall_get_context_pack" in tool_names
-    assert "viberecall_get_operation" in tool_names
+    assert "viberecall_search_entities" not in tool_names
+    assert "viberecall_resolve_reference" not in tool_names
+    assert "viberecall_get_neighbors" not in tool_names
+    assert "viberecall_find_paths" not in tool_names
+    assert "viberecall_get_context_pack" not in tool_names
+    assert "viberecall_get_operation" not in tool_names
     assert "viberecall_save_episode" not in tool_names
     assert "viberecall_update_fact" not in tool_names
     assert "viberecall_pin_memory" not in tool_names
@@ -190,6 +190,37 @@ def test_tools_list_includes_resolution_tools_for_resolution_write_scope(monkeyp
     assert "viberecall_merge_entities" in tool_names
     assert "viberecall_split_entity" in tool_names
     assert "viberecall_resolve_reference" not in tool_names
+
+
+def test_get_status_uses_status_rate_limit_bucket(monkeypatch) -> None:
+    episode_store = {}
+    setup_app(monkeypatch, make_token(plan="free", scopes=["ops:read"]), episode_store)
+    checked_keys: list[str] = []
+
+    class FakeLimiter:
+        async def check(self, key: str, *, capacity: int, window_seconds: int):
+            checked_keys.append(key)
+            return SimpleNamespace(allowed=True, reset_at="2026-03-08T00:00:00Z")
+
+    monkeypatch.setattr(tool_handlers, "get_rate_limiter", lambda: FakeLimiter())
+
+    with TestClient(create_app()) as client:
+        session_id = initialize_session(client, "proj_test")
+        response = client.post(
+            "/p/proj_test/mcp",
+            headers=mcp_headers(session_id),
+            json={
+                "jsonrpc": "2.0",
+                "id": "status-rate-bucket",
+                "method": "tools/call",
+                "params": {"name": "viberecall_get_status", "arguments": {}},
+            },
+        )
+
+    teardown_app()
+    assert parse_result(response)["ok"] is True
+    assert any(key.startswith("token:tok_test:viberecall_get_status") for key in checked_keys)
+    assert not any("viberecall_get_operation" in key for key in checked_keys)
 
 
 def test_streamable_http_get_without_accept_returns_406(monkeypatch) -> None:

@@ -6,7 +6,7 @@ async def get_project(session: AsyncSession, project_id: str) -> dict | None:
     result = await session.execute(
         text(
             """
-            select id, name, plan, retention_days, isolation_mode, created_at
+            select id, name, owner_id, plan, retention_days, isolation_mode, created_at
             from projects
             where id = :project_id
             """
@@ -21,7 +21,7 @@ async def list_projects(session: AsyncSession) -> list[dict]:
     result = await session.execute(
         text(
             """
-            select id, name, plan, retention_days, isolation_mode, created_at
+            select id, name, owner_id, plan, retention_days, isolation_mode, created_at
             from projects
             order by created_at desc, id desc
             """
@@ -164,6 +164,134 @@ async def update_project_plan(
     )
     row = result.mappings().first()
     return dict(row) if row else None
+
+
+async def create_project_memory_link(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    linked_project_id: str,
+) -> dict:
+    left_id, right_id = sorted((project_id, linked_project_id))
+    result = await session.execute(
+        text(
+            """
+            insert into project_memory_links (project_id, linked_project_id)
+            values (:project_id, :linked_project_id)
+            on conflict (project_id, linked_project_id) do update
+            set linked_project_id = excluded.linked_project_id
+            returning project_id, linked_project_id, created_at
+            """
+        ),
+        {
+            "project_id": left_id,
+            "linked_project_id": right_id,
+        },
+    )
+    row = result.mappings().first()
+    return dict(row) if row else {}
+
+
+async def delete_project_memory_link(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    linked_project_id: str,
+) -> bool:
+    left_id, right_id = sorted((project_id, linked_project_id))
+    result = await session.execute(
+        text(
+            """
+            delete from project_memory_links
+            where project_id = :project_id
+              and linked_project_id = :linked_project_id
+            """
+        ),
+        {
+            "project_id": left_id,
+            "linked_project_id": right_id,
+        },
+    )
+    return bool(result.rowcount)
+
+
+async def list_project_memory_links(
+    session: AsyncSession,
+    *,
+    project_id: str,
+) -> list[dict]:
+    result = await session.execute(
+        text(
+            """
+            select p.id, p.name, p.owner_id, p.plan, p.retention_days, p.isolation_mode, p.created_at
+            from project_memory_links l
+            join projects p
+              on p.id = case
+                    when l.project_id = :project_id then l.linked_project_id
+                    else l.project_id
+                  end
+            where l.project_id = :project_id
+               or l.linked_project_id = :project_id
+            order by p.created_at desc, p.id desc
+            """
+        ),
+        {"project_id": project_id},
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
+async def resolve_memory_scope_project_ids(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    requested_scope: str,
+) -> tuple[list[str], str]:
+    if requested_scope == "project":
+        return [project_id], "project"
+
+    project = await get_project(session, project_id)
+    if project is None:
+        return [project_id], "project"
+
+    if requested_scope == "org":
+        owner_id = project.get("owner_id")
+        if not owner_id:
+            return [project_id], "project"
+        result = await session.execute(
+            text(
+                """
+                select id
+                from projects
+                where owner_id = :owner_id
+                order by created_at desc, id desc
+                """
+            ),
+            {"owner_id": owner_id},
+        )
+        project_ids = [str(row["id"]) for row in result.mappings().all()]
+        return project_ids or [project_id], "org"
+
+    if requested_scope == "linked":
+        result = await session.execute(
+            text(
+                """
+                select distinct case
+                    when project_id = :project_id then linked_project_id
+                    else project_id
+                  end as project_id
+                from project_memory_links
+                where project_id = :project_id
+                   or linked_project_id = :project_id
+                order by project_id
+                """
+            ),
+            {"project_id": project_id},
+        )
+        linked_ids = [str(row["project_id"]) for row in result.mappings().all()]
+        ordered = [project_id, *[candidate for candidate in linked_ids if candidate != project_id]]
+        return ordered, "linked"
+
+    return [project_id], "project"
 
 
 async def list_project_overview_for_owner(

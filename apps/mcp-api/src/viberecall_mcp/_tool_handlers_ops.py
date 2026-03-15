@@ -15,7 +15,7 @@ async def handle_get_status(
     _ = arguments
     root.ensure_plan_access(token, "viberecall_get_status")
     root.ensure_scope(token, "ops:read")
-    await root.enforce_rate_limit(token, project_id, "viberecall_get_operation")
+    await root.enforce_rate_limit(token, project_id, "viberecall_get_status")
 
     graphiti_enabled = bool((root.settings.graphiti_api_key or "").strip())
     status = "ok"

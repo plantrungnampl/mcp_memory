@@ -43,12 +43,12 @@ LEGACY_SCOPE_ALIASES = {
     "memory:read": {"memory:read"},
     "memory:write": {"memory:write"},
     "facts:write": {"facts:write"},
-    "entities:read": {"entities:read", "memory:read", "index:read"},
-    "graph:read": {"graph:read", "memory:read"},
-    "index:read": {"index:read", "memory:read", "codeindex:read"},
+    "entities:read": {"entities:read"},
+    "graph:read": {"graph:read"},
+    "index:read": {"index:read", "codeindex:read"},
     "index:run": {"index:run", "codeindex:write"},
     "resolution:write": {"resolution:write"},
-    "ops:read": {"ops:read", "memory:read"},
+    "ops:read": {"ops:read"},
     "delete:write": {"delete:write"},
 }
 

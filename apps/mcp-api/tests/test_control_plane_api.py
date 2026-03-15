@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -85,6 +86,64 @@ def test_list_projects_returns_owner_scoped_projects(monkeypatch) -> None:
     ]
 
 
+def test_manage_project_memory_links_routes(monkeypatch) -> None:
+    state = {"links": [{"id": "proj_2", "name": "Project B", "plan": "pro", "created_at": "2026-02-28T10:00:00Z"}]}
+
+    async def fake_ensure_project_access(_session, **kwargs):
+        return {"id": kwargs["project_id"], "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_list_project_memory_links(_session, *, project_id: str):
+        assert project_id == "proj_1"
+        return state["links"]
+
+    async def fake_create_project_memory_link(_session, **kwargs):
+        assert kwargs["project_id"] == "proj_1"
+        assert kwargs["linked_project_id"] == "proj_2"
+        return {"project_id": "proj_1", "linked_project_id": "proj_2", "created_at": "2026-02-28T10:00:00Z"}
+
+    async def fake_delete_project_memory_link(_session, **kwargs):
+        assert kwargs["project_id"] == "proj_1"
+        assert kwargs["linked_project_id"] == "proj_2"
+        state["links"] = []
+        return True
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "list_project_memory_links", fake_list_project_memory_links)
+    monkeypatch.setattr(control_plane, "create_project_memory_link", fake_create_project_memory_link)
+    monkeypatch.setattr(control_plane, "delete_project_memory_link", fake_delete_project_memory_link)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/control-plane/projects/proj_1/memory-links",
+            headers=auth_headers(),
+            json={"linked_project_id": "proj_2"},
+        )
+        listed = client.get(
+            "/api/control-plane/projects/proj_1/memory-links",
+            headers=auth_headers(),
+        )
+        deleted = client.delete(
+            "/api/control-plane/projects/proj_1/memory-links/proj_2",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert created.status_code == 200
+    assert listed.status_code == 200
+    assert deleted.status_code == 200
+    assert created.json()["links"][0]["id"] == "proj_2"
+    assert listed.json()["links"][0]["id"] == "proj_2"
+    assert deleted.json()["removed"] is True
+    assert deleted.json()["links"] == []
+
+
 def test_create_project_returns_plaintext_token(monkeypatch) -> None:
     async def fake_create_project(_session, **_kwargs):
         return {
@@ -144,6 +203,8 @@ def test_create_project_returns_plaintext_token(monkeypatch) -> None:
 
 
 def test_rotate_token_sets_grace_and_returns_new_plaintext(monkeypatch) -> None:
+    expires_at = datetime.now(timezone.utc) + timedelta(days=2)
+
     async def fake_ensure_project_access(_session, **_kwargs):
         return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
 
@@ -154,7 +215,8 @@ def test_rotate_token_sets_grace_and_returns_new_plaintext(monkeypatch) -> None:
             "created_at": "2026-02-28T09:00:00Z",
             "last_used_at": None,
             "revoked_at": None,
-            "expires_at": None,
+            "expires_at": expires_at,
+            "scopes": ["facts:write"],
         }
 
     async def fake_set_token_revoked_at(_session, **kwargs):
@@ -165,7 +227,8 @@ def test_rotate_token_sets_grace_and_returns_new_plaintext(monkeypatch) -> None:
             "created_at": "2026-02-28T09:00:00Z",
             "last_used_at": None,
             "revoked_at": revoked_at,
-            "expires_at": None,
+            "expires_at": expires_at,
+            "scopes": ["facts:write"],
         }
 
     async def fake_create_token(_session, **_kwargs):
@@ -175,7 +238,8 @@ def test_rotate_token_sets_grace_and_returns_new_plaintext(monkeypatch) -> None:
             "created_at": "2026-02-28T10:00:00Z",
             "last_used_at": None,
             "revoked_at": None,
-            "expires_at": None,
+            "expires_at": expires_at,
+            "scopes": ["facts:write"],
         }
 
     async def fake_audit(*_args, **_kwargs):
@@ -191,7 +255,7 @@ def test_rotate_token_sets_grace_and_returns_new_plaintext(monkeypatch) -> None:
             "hash_new",
             ["facts:write"],
             "proj_1",
-            None,
+            expires_at,
         ),
     )
 
@@ -213,7 +277,41 @@ def test_rotate_token_sets_grace_and_returns_new_plaintext(monkeypatch) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["new_token"]["plaintext"] == "vr_mcp_sk_plaintext_new"
+    assert body["new_token"]["expires_at"] == expires_at.isoformat().replace("+00:00", "Z")
     assert body["old_token"]["status"] in {"grace", "revoked"}
+
+
+def test_rotate_token_rejects_expired_token(monkeypatch) -> None:
+    expired_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_get_token_for_project(_session, **_kwargs):
+        return {
+            "token_id": "tok_old",
+            "prefix": "vr_mcp_sk_old",
+            "created_at": "2026-02-28T09:00:00Z",
+            "last_used_at": None,
+            "revoked_at": None,
+            "expires_at": expired_at,
+            "scopes": ["memory:read"],
+        }
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "get_token_for_project", fake_get_token_for_project)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/control-plane/projects/proj_1/tokens/tok_old/rotate",
+            headers=auth_headers(),
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Cannot rotate an expired token"
 
 
 def test_control_plane_requires_internal_secret() -> None:
@@ -522,9 +620,10 @@ def test_token_status_grace_window() -> None:
     future = datetime.now(timezone.utc) + timedelta(minutes=5)
     past = datetime.now(timezone.utc) - timedelta(minutes=1)
 
-    assert control_plane._token_status({"revoked_at": None}) == "active"
+    assert control_plane._token_status({"revoked_at": None, "expires_at": None}) == "active"
     assert control_plane._token_status({"revoked_at": future}) == "grace"
     assert control_plane._token_status({"revoked_at": past}) == "revoked"
+    assert control_plane._token_status({"revoked_at": None, "expires_at": past}) == "expired"
 
 
 def test_project_usage_returns_rollup(monkeypatch) -> None:
@@ -1772,6 +1871,39 @@ def test_purge_project_enqueues_job_with_idempotency(monkeypatch) -> None:
     assert first.json()["job"]["job_id"] == "job_purge_1"
     assert second.json()["job"]["job_id"] == "job_purge_1"
     assert calls["count"] == 1
+
+
+def test_purge_project_conflicts_while_same_idempotency_key_is_in_flight(monkeypatch) -> None:
+    async def fake_ensure_project_access(_session, **_kwargs):
+        return {"id": "proj_1", "plan": "pro", "owner_id": "user_123"}
+
+    async def fake_audit(*_args, **_kwargs):
+        return None
+
+    class UnexpectedQueue:
+        async def enqueue_purge_project(self, **_kwargs):
+            raise AssertionError("purge should not enqueue while key is locked")
+
+    asyncio.run(control_plane.get_idempotency_store().reset())
+    asyncio.run(control_plane.get_idempotency_store().claim("cp_project_purge:proj_1:idem-purge-lock", ttl_seconds=30))
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[control_plane.authenticate_control_plane_request] = override_user
+    monkeypatch.setattr(control_plane, "_ensure_project_access", fake_ensure_project_access)
+    monkeypatch.setattr(control_plane, "_audit_control_plane", fake_audit)
+    monkeypatch.setattr(control_plane, "get_task_queue", lambda: UnexpectedQueue())
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/control-plane/projects/proj_1/purge",
+            headers=auth_headers() | {"Idempotency-Key": "idem-purge-lock"},
+        )
+
+    app.dependency_overrides.clear()
+    asyncio.run(control_plane.get_idempotency_store().reset())
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Another request with this Idempotency-Key is in progress"
 
 
 def test_migrate_inline_to_object_enqueues_job_with_idempotency(monkeypatch) -> None:

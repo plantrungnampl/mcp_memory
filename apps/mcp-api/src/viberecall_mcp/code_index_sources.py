@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import tempfile
 import zipfile
+from base64 import b64encode
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +20,7 @@ from viberecall_mcp.repositories.index_bundles import get_index_bundle
 
 
 _INTERNAL_FULL_SNAPSHOT_MODE = "snapshot"
+_ARCHIVE_STREAM_CHUNK_BYTES = 1024 * 1024
 
 
 def _normalize_full_snapshot_mode(mode: str | None) -> str:
@@ -55,16 +58,21 @@ def normalize_repo_source(repo_source: dict[str, Any]) -> dict[str, Any]:
         split = urlsplit(remote_url)
         if split.scheme.lower() != "https":
             raise ValueError("git.repo_source.remote_url must use https")
-        if not split.netloc:
+        host = (split.hostname or "").strip().lower()
+        if not split.netloc or not host:
             raise ValueError("git.repo_source.remote_url must include a host")
+        if split.query or split.fragment:
+            raise ValueError("git.repo_source.remote_url must not include query parameters or fragments")
         if split.username or split.password:
             raise ValueError("git.repo_source.remote_url must not embed credentials")
+        allowed_hosts = set(settings.resolved_index_git_allowed_hosts())
+        if host not in allowed_hosts:
+            raise ValueError(f"git.repo_source.remote_url host '{host}' is not allowlisted")
         if credential_ref is not None:
             credentials = settings.resolved_index_git_credential_refs()
             credential = credentials.get(credential_ref)
             if credential is None:
                 raise ValueError(f"Unknown git credential_ref: {credential_ref}")
-            host = (split.hostname or "").lower()
             if host not in set(credential.get("allowed_hosts") or []):
                 raise ValueError(f"credential_ref '{credential_ref}' is not allowed for host '{host}'")
         repo_name = str(repo_source.get("repo_name") or Path(split.path).stem or split.netloc).strip() or split.netloc
@@ -144,6 +152,7 @@ def _is_zip_symlink(info: zipfile.ZipInfo) -> bool:
 def validate_workspace_bundle_archive(payload: bytes) -> dict[str, Any]:
     manifest: dict[str, Any] | None = None
     seen_files: set[str] = set()
+    total_uncompressed_bytes = 0
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             for info in archive.infolist():
@@ -159,6 +168,9 @@ def validate_workspace_bundle_archive(payload: bytes) -> dict[str, Any]:
                 seen_files.add(info.filename)
                 if info.file_size > settings.index_bundle_max_bytes:
                     raise ValueError("Index bundle contains a file that exceeds size limit")
+                total_uncompressed_bytes += int(info.file_size)
+                if total_uncompressed_bytes > settings.index_bundle_max_bytes:
+                    raise ValueError("Index bundle total extracted size exceeds limit")
                 if info.filename == "manifest.json":
                     try:
                         manifest = json.loads(archive.read(info).decode("utf-8"))
@@ -192,6 +204,7 @@ def validate_workspace_bundle_archive(payload: bytes) -> dict[str, Any]:
 
 def _safe_extract_bundle(payload: bytes, destination: Path) -> dict[str, Any]:
     manifest = validate_workspace_bundle_archive(payload)
+    total_written_bytes = 0
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         for info in archive.infolist():
             if info.is_dir():
@@ -206,7 +219,19 @@ def _safe_extract_bundle(payload: bytes, destination: Path) -> dict[str, Any]:
                 raise ValueError("Index bundle escapes extraction root")
             target.parent.mkdir(parents=True, exist_ok=True)
             with archive.open(info, "r") as source:
-                target.write_bytes(source.read())
+                try:
+                    with target.open("wb") as handle:
+                        while True:
+                            chunk = source.read(_ARCHIVE_STREAM_CHUNK_BYTES)
+                            if not chunk:
+                                break
+                            total_written_bytes += len(chunk)
+                            if total_written_bytes > settings.index_bundle_max_bytes:
+                                raise ValueError("Index bundle total extracted size exceeds limit")
+                            handle.write(chunk)
+                except Exception:
+                    target.unlink(missing_ok=True)
+                    raise
     return manifest
 
 
@@ -224,24 +249,34 @@ def _git_credential_config(credential_ref: str | None, remote_url: str) -> dict[
     return credential
 
 
-def _authenticated_git_remote_url(remote_url: str, credential_ref: str | None) -> str:
+def _git_environment(remote_url: str, credential_ref: str | None) -> dict[str, str] | None:
     credential = _git_credential_config(credential_ref, remote_url)
     if credential is None:
-        return remote_url
-    split = urlsplit(remote_url)
+        return None
     username = credential.get("username") or "git"
     secret = credential.get("token") or credential.get("password") or ""
-    netloc = f"{quote(username, safe='')}:{quote(secret, safe='')}@{split.netloc}"
-    return urlunsplit((split.scheme, netloc, split.path, split.query, split.fragment))
+    header_value = "Authorization: Basic " + b64encode(f"{username}:{secret}".encode("utf-8")).decode("ascii")
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.extraHeader",
+        "GIT_CONFIG_VALUE_0": header_value,
+    }
 
 
-def _run_git_command(*args: str, cwd: Path, error_context: str) -> None:
+def _authenticated_git_remote_url(remote_url: str, credential_ref: str | None) -> str:
+    _ = credential_ref
+    return remote_url
+
+
+def _run_git_command(*args: str, cwd: Path, error_context: str, env: dict[str, str] | None = None) -> None:
+    process_env = None if env is None else {**os.environ, **env}
     result = subprocess.run(
         ["git", *args],
         cwd=cwd,
         capture_output=True,
         text=True,
         check=False,
+        env=process_env,
     )
     if result.returncode != 0:
         raise RuntimeError(f"{error_context} failed")
@@ -254,12 +289,12 @@ async def _materialize_git_repo(
     ref: str,
     credential_ref: str | None,
 ):
-    authenticated_remote = _authenticated_git_remote_url(remote_url, credential_ref)
+    git_env = _git_environment(remote_url, credential_ref)
     with tempfile.TemporaryDirectory(prefix="viberecall-git-index-") as temp_dir:
         root = Path(temp_dir).resolve()
         _run_git_command("init", cwd=root, error_context="git init")
-        _run_git_command("remote", "add", "origin", authenticated_remote, cwd=root, error_context="git remote add")
-        _run_git_command("fetch", "--depth", "1", "origin", ref, cwd=root, error_context="git fetch")
+        _run_git_command("remote", "add", "origin", remote_url, cwd=root, error_context="git remote add")
+        _run_git_command("fetch", "--depth", "1", "origin", ref, cwd=root, error_context="git fetch", env=git_env)
         _run_git_command("checkout", "--detach", "FETCH_HEAD", cwd=root, error_context="git checkout")
         yield root
 

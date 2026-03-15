@@ -47,6 +47,7 @@ async def handle_save(
     content_ref: str | None = None
     inline_content: str | None = content
     summary: str | None = None
+    committed = False
     if len(content.encode("utf-8")) > root.settings.raw_episode_inline_max_bytes:
         content_ref = root.episode_storage_key(project_id, episode_id)
         try:
@@ -106,6 +107,7 @@ async def handle_save(
             },
         )
         await arguments["session"].commit()
+        committed = True
         job_id = None
         try:
             await root.dispatch_outbox_events(arguments["session"], operation_id=operation_id, limit=1)
@@ -134,20 +136,41 @@ async def handle_save(
                 "enrichment": {"mode": "ASYNC", "job_id": job_id},
             },
         )
-        await root.persist_idempotent_response(
-            tool_name=tool_name,
-            project_id=project_id,
-            idempotency_key=idempotency_key,
-            payload_hash=payload_hash,
-            response=response,
-        )
+        try:
+            await root.persist_idempotent_response(
+                tool_name=tool_name,
+                project_id=project_id,
+                idempotency_key=idempotency_key,
+                payload_hash=payload_hash,
+                response=response,
+            )
+        except Exception as exc:  # noqa: BLE001
+            root.logger.warning(
+                "save_idempotent_persist_failed_after_commit",
+                project_id=project_id,
+                episode_id=episode_id,
+                operation_id=operation_id,
+                error=str(exc),
+            )
         return response
     except Exception:
-        await root.release_idempotency_slot(
-            tool_name=tool_name,
-            project_id=project_id,
-            idempotency_key=idempotency_key,
-        )
+        if not committed:
+            if content_ref is not None:
+                try:
+                    await root.delete_object(object_key=content_ref)
+                except Exception as exc:  # noqa: BLE001
+                    root.logger.warning(
+                        "save_large_content_cleanup_failed",
+                        project_id=project_id,
+                        episode_id=episode_id,
+                        object_key=content_ref,
+                        error=str(exc),
+                    )
+            await root.release_idempotency_slot(
+                tool_name=tool_name,
+                project_id=project_id,
+                idempotency_key=idempotency_key,
+            )
         raise
 
 
@@ -163,7 +186,11 @@ async def handle_search(
     root.ensure_scope(token, "memory:read")
     await root.enforce_rate_limit(token, project_id, tool_name)
 
-    requested_scope, scope_applied = root._resolve_memory_scope(arguments)
+    requested_scope, scope_applied, scoped_project_ids = await root._resolve_memory_scope_context(
+        session=arguments["session"],
+        project_id=project_id,
+        arguments=arguments,
+    )
     seed = root.make_seed(root._seed_payload(arguments))
     snapshot_token = arguments.get("snapshot_token")
     if snapshot_token is not None and str(snapshot_token) != seed:
@@ -177,9 +204,9 @@ async def handle_search(
     filters = arguments.get("filters") or {}
     canonical_results: list[dict] = []
     if episode_offset == 0:
-        canonical_results = await root.search_canonical_memory(
+        canonical_results = await root._search_canonical_memory_scoped(
             arguments["session"],
-            project_id=project_id,
+            project_ids=scoped_project_ids,
             query=str(arguments["query"]),
             filters=filters,
             sort=str(arguments.get("sort") or "RELEVANCE"),
@@ -256,10 +283,10 @@ async def handle_search(
             limit=limit + 1,
             offset=fact_offset,
         )
-    episode_results = await root.list_recent_raw_episodes(
+    episode_results = await root._list_recent_raw_episodes_scoped(
         arguments["session"],
-        project_id=project_id,
-        query=arguments["query"],
+        project_ids=scoped_project_ids,
+        query=str(arguments["query"]),
         window_seconds=root.settings.recent_episode_window_seconds,
         limit=limit + 1,
         offset=episode_offset,
@@ -307,22 +334,24 @@ async def handle_search(
             episode_offset=episode_offset + episode_consumed,
             seed=seed,
         )
-    fact_page = [item for item in page if item.get("kind") == "fact"]
-    recent_episode_page = [item["episode"] for item in page if item.get("kind") == "episode"]
-    expanded_entities = root._expanded_entities_from_page(fact_page, limit=max(limit, 1))
+    payload = root._canonical_search_payload(
+        page=page,
+        next_cursor=next_cursor,
+        snapshot_token=seed,
+        requested_scope=requested_scope,
+        scope_applied=scope_applied,
+    )
+    if tool_name == "viberecall_search_memory":
+        return root.build_output_envelope(
+            request_id=request_id,
+            ok=True,
+            result=payload,
+        )
+
     return root.build_output_envelope(
         request_id=request_id,
         ok=True,
-        result={
-            "results": page,
-            "next_cursor": next_cursor,
-            "snapshot_token": seed,
-            "scope_requested": requested_scope,
-            "scope_applied": scope_applied,
-            "seeds": [root._search_seed_entry(item) for item in page],
-            "recent_episodes": recent_episode_page,
-            "expanded_entities": expanded_entities,
-        },
+        result=payload,
     )
 
 
@@ -456,6 +485,7 @@ async def handle_update_fact(
         idempotency_key=idempotency_key,
     )
 
+    committed = False
     try:
         fact_group_id = arguments.get("fact_group_id")
         expected_current_version_id = arguments.get("expected_current_version_id")
@@ -499,18 +529,28 @@ async def handle_update_fact(
                 result_payload=result,
             )
             await arguments["session"].commit()
+            committed = True
             response = root.build_output_envelope(
                 request_id=request_id,
                 ok=True,
                 result={**result, "operation_id": operation_id},
             )
-            await root.persist_idempotent_response(
-                tool_name=tool_name,
-                project_id=project_id,
-                idempotency_key=idempotency_key,
-                payload_hash=payload_hash,
-                response=response,
-            )
+            try:
+                await root.persist_idempotent_response(
+                    tool_name=tool_name,
+                    project_id=project_id,
+                    idempotency_key=idempotency_key,
+                    payload_hash=payload_hash,
+                    response=response,
+                )
+            except Exception as exc:  # noqa: BLE001
+                root.logger.warning(
+                    "update_fact_idempotent_persist_failed_after_commit",
+                    project_id=project_id,
+                    operation_id=operation_id,
+                    mode="canonical",
+                    error=str(exc),
+                )
             return response
 
         await root.ensure_graph_memory_dependencies_ready()
@@ -544,6 +584,7 @@ async def handle_update_fact(
             },
         )
         await arguments["session"].commit()
+        committed = True
         await root.dispatch_outbox_events(arguments["session"], operation_id=operation_id, limit=1)
         operation = await root.get_operation_record(arguments["session"], project_id=project_id, operation_id=operation_id)
         result = (operation or {}).get("result_json")
@@ -562,20 +603,30 @@ async def handle_update_fact(
                 "operation_id": operation_id,
             },
         )
-        await root.persist_idempotent_response(
-            tool_name=tool_name,
-            project_id=project_id,
-            idempotency_key=idempotency_key,
-            payload_hash=payload_hash,
-            response=response,
-        )
+        try:
+            await root.persist_idempotent_response(
+                tool_name=tool_name,
+                project_id=project_id,
+                idempotency_key=idempotency_key,
+                payload_hash=payload_hash,
+                response=response,
+            )
+        except Exception as exc:  # noqa: BLE001
+            root.logger.warning(
+                "update_fact_idempotent_persist_failed_after_commit",
+                project_id=project_id,
+                operation_id=operation_id,
+                mode="async",
+                error=str(exc),
+            )
         return response
     except Exception:
-        await root.release_idempotency_slot(
-            tool_name=tool_name,
-            project_id=project_id,
-            idempotency_key=idempotency_key,
-        )
+        if not committed:
+            await root.release_idempotency_slot(
+                tool_name=tool_name,
+                project_id=project_id,
+                idempotency_key=idempotency_key,
+            )
         raise
 
 

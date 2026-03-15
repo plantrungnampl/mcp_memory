@@ -11,6 +11,7 @@ from itertools import combinations
 from pathlib import PurePosixPath
 from typing import Literal
 
+import structlog
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -57,7 +58,10 @@ from viberecall_mcp.repositories.exports import (
 from viberecall_mcp.repositories.projects import (
     claim_project_owner_if_unowned,
     create_project,
+    create_project_memory_link,
+    delete_project_memory_link,
     get_project_for_owner,
+    list_project_memory_links,
     list_project_overview_for_owner,
     list_projects_for_owner,
     update_project_plan,
@@ -92,6 +96,7 @@ from viberecall_mcp.runtime import (
 
 
 settings = get_settings()
+logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/control-plane", tags=["control-plane"])
 
 
@@ -107,6 +112,10 @@ class CreateTokenInput(BaseModel):
 
 class CreateExportInput(BaseModel):
     format: Literal["json_v1"] = "json_v1"
+
+
+class CreateProjectMemoryLinkInput(BaseModel):
+    linked_project_id: str = Field(min_length=1, max_length=128)
 
 
 class MigrateInlineToObjectInput(BaseModel):
@@ -274,13 +283,30 @@ def _serialize_index_bundle(bundle: dict) -> dict:
 
 
 def _token_status(token: dict) -> str:
-    revoked_at = token.get("revoked_at")
+    expires_at = _coerce_datetime(token.get("expires_at"))
+    revoked_at = _coerce_datetime(token.get("revoked_at"))
     now = datetime.now(timezone.utc)
+    if expires_at is not None and expires_at <= now:
+        return "expired"
     if revoked_at is None:
         return "active"
     if revoked_at > now:
         return "grace"
     return "revoked"
+
+
+def _coerce_datetime(value: object) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+    return None
 
 
 def _build_connection(project_id: str, token_prefix: str | None) -> dict:
@@ -897,6 +923,38 @@ async def _persist_idempotent_control_plane_response(
     )
 
 
+async def _claim_idempotent_control_plane_slot(
+    *,
+    namespace: str,
+    project_id: str,
+    idempotency_key: str | None,
+) -> None:
+    if not idempotency_key:
+        return
+    store = get_idempotency_store()
+    claim = getattr(store, "claim", None)
+    if claim is None:
+        return
+    locked = await claim(f"{namespace}:{project_id}:{idempotency_key}", ttl_seconds=30)
+    if not locked:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Another request with this Idempotency-Key is in progress")
+
+
+async def _release_idempotent_control_plane_slot(
+    *,
+    namespace: str,
+    project_id: str,
+    idempotency_key: str | None,
+) -> None:
+    if not idempotency_key:
+        return
+    store = get_idempotency_store()
+    release = getattr(store, "release", None)
+    if release is None:
+        return
+    await release(f"{namespace}:{project_id}:{idempotency_key}")
+
+
 @router.get("/projects")
 async def list_projects_route(
     user: AuthenticatedControlPlaneUser = Depends(authenticate_control_plane_request),
@@ -943,6 +1001,105 @@ async def projects_overview_route(
         "window_days": window_days,
         "projects": [_serialize_project_overview(row) for row in rows],
     }
+
+
+@router.get("/projects/{project_id}/memory-links")
+async def list_project_memory_links_route(
+    project_id: str,
+    user: AuthenticatedControlPlaneUser = Depends(authenticate_control_plane_request),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _ensure_project_access(
+        session,
+        project_id=project_id,
+        user=user,
+        claim_unowned_on_write=False,
+    )
+    rows = await list_project_memory_links(session, project_id=project_id)
+    await _audit_control_plane(
+        session,
+        action="control-plane/project-memory-links.list",
+        status_text="ok",
+        user=user,
+        project_id=project_id,
+    )
+    return {"links": [_serialize_project(row) for row in rows]}
+
+
+@router.post("/projects/{project_id}/memory-links")
+async def create_project_memory_link_route(
+    project_id: str,
+    payload: CreateProjectMemoryLinkInput,
+    user: AuthenticatedControlPlaneUser = Depends(authenticate_control_plane_request),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    linked_project_id = payload.linked_project_id.strip()
+    if linked_project_id == project_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Project cannot link to itself")
+
+    await _ensure_project_access(
+        session,
+        project_id=project_id,
+        user=user,
+        claim_unowned_on_write=True,
+    )
+    await _ensure_project_access(
+        session,
+        project_id=linked_project_id,
+        user=user,
+        claim_unowned_on_write=True,
+    )
+    await create_project_memory_link(
+        session,
+        project_id=project_id,
+        linked_project_id=linked_project_id,
+    )
+    await session.commit()
+    rows = await list_project_memory_links(session, project_id=project_id)
+    await _audit_control_plane(
+        session,
+        action="control-plane/project-memory-links.create",
+        status_text="ok",
+        user=user,
+        project_id=project_id,
+    )
+    return {"links": [_serialize_project(row) for row in rows]}
+
+
+@router.delete("/projects/{project_id}/memory-links/{linked_project_id}")
+async def delete_project_memory_link_route(
+    project_id: str,
+    linked_project_id: str,
+    user: AuthenticatedControlPlaneUser = Depends(authenticate_control_plane_request),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _ensure_project_access(
+        session,
+        project_id=project_id,
+        user=user,
+        claim_unowned_on_write=True,
+    )
+    await _ensure_project_access(
+        session,
+        project_id=linked_project_id,
+        user=user,
+        claim_unowned_on_write=True,
+    )
+    removed = await delete_project_memory_link(
+        session,
+        project_id=project_id,
+        linked_project_id=linked_project_id,
+    )
+    await session.commit()
+    rows = await list_project_memory_links(session, project_id=project_id)
+    await _audit_control_plane(
+        session,
+        action="control-plane/project-memory-links.delete",
+        status_text="ok",
+        user=user,
+        project_id=project_id,
+    )
+    return {"removed": removed, "links": [_serialize_project(row) for row in rows]}
 
 
 @router.get("/projects/{project_id}/index-status")
@@ -1845,11 +2002,16 @@ async def create_export_route(
     )
     if replay is not None:
         return replay
-
-    await _ensure_export_dependencies_ready()
+    await _claim_idempotent_control_plane_slot(
+        namespace="cp_export_create",
+        project_id=project_id,
+        idempotency_key=idempotency_key,
+    )
 
     export_id = new_id("exp")
+    committed = False
     try:
+        await _ensure_export_dependencies_ready()
         export_row = await create_export(
             session,
             export_id=export_id,
@@ -1869,19 +2031,34 @@ async def create_export_route(
             job_id=job_id,
         )
         await session.commit()
+        committed = True
     except Exception:
-        await session.rollback()
+        if not committed:
+            await session.rollback()
+            await _release_idempotent_control_plane_slot(
+                namespace="cp_export_create",
+                project_id=project_id,
+                idempotency_key=idempotency_key,
+            )
         raise
 
     export_row = await get_export(session, project_id=project_id, export_id=export_id) or export_row
     response = {"export": _serialize_export(export_row)}
-    await _persist_idempotent_control_plane_response(
-        namespace="cp_export_create",
-        project_id=project_id,
-        idempotency_key=idempotency_key,
-        payload_hash=payload_hash,
-        response=response,
-    )
+    try:
+        await _persist_idempotent_control_plane_response(
+            namespace="cp_export_create",
+            project_id=project_id,
+            idempotency_key=idempotency_key,
+            payload_hash=payload_hash,
+            response=response,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "control_plane_export_idempotent_persist_failed_after_commit",
+            project_id=project_id,
+            export_id=export_id,
+            error=str(exc),
+        )
     await _audit_control_plane(
         session,
         action="control-plane/export.create",
@@ -2049,26 +2226,50 @@ async def purge_project_route(
     )
     if replay is not None:
         return replay
-
-    job_id = await get_task_queue().enqueue_purge_project(
-        project_id=project_id,
-        request_id=new_id("req"),
-        token_id=None,
-    )
-    response = {
-        "job": {
-            "job_id": job_id,
-            "kind": "purge_project",
-            "status": "queued",
-        }
-    }
-    await _persist_idempotent_control_plane_response(
+    await _claim_idempotent_control_plane_slot(
         namespace="cp_project_purge",
         project_id=project_id,
         idempotency_key=idempotency_key,
-        payload_hash=payload_hash,
-        response=response,
     )
+
+    enqueued = False
+    try:
+        job_id = await get_task_queue().enqueue_purge_project(
+            project_id=project_id,
+            request_id=new_id("req"),
+            token_id=None,
+        )
+        enqueued = True
+        response = {
+            "job": {
+                "job_id": job_id,
+                "kind": "purge_project",
+                "status": "queued",
+            }
+        }
+        try:
+            await _persist_idempotent_control_plane_response(
+                namespace="cp_project_purge",
+                project_id=project_id,
+                idempotency_key=idempotency_key,
+                payload_hash=payload_hash,
+                response=response,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "control_plane_purge_idempotent_persist_failed_after_enqueue",
+                project_id=project_id,
+                job_id=job_id,
+                error=str(exc),
+            )
+    except Exception:
+        if not enqueued:
+            await _release_idempotent_control_plane_slot(
+                namespace="cp_project_purge",
+                project_id=project_id,
+                idempotency_key=idempotency_key,
+            )
+        raise
     await _audit_control_plane(
         session,
         action="control-plane/project.purge",
@@ -2108,28 +2309,52 @@ async def migrate_inline_to_object_route(
     )
     if replay is not None:
         return replay
-
-    job_id = await get_task_queue().enqueue_migrate_inline_to_object(
-        project_id=project_id,
-        request_id=new_id("req"),
-        token_id=None,
-        force=force,
-    )
-    response = {
-        "job": {
-            "job_id": job_id,
-            "kind": "migrate_inline_to_object",
-            "status": "queued",
-            "force": force,
-        }
-    }
-    await _persist_idempotent_control_plane_response(
+    await _claim_idempotent_control_plane_slot(
         namespace="cp_migrate_inline_to_object",
         project_id=project_id,
         idempotency_key=idempotency_key,
-        payload_hash=payload_hash,
-        response=response,
     )
+
+    enqueued = False
+    try:
+        job_id = await get_task_queue().enqueue_migrate_inline_to_object(
+            project_id=project_id,
+            request_id=new_id("req"),
+            token_id=None,
+            force=force,
+        )
+        enqueued = True
+        response = {
+            "job": {
+                "job_id": job_id,
+                "kind": "migrate_inline_to_object",
+                "status": "queued",
+                "force": force,
+            }
+        }
+        try:
+            await _persist_idempotent_control_plane_response(
+                namespace="cp_migrate_inline_to_object",
+                project_id=project_id,
+                idempotency_key=idempotency_key,
+                payload_hash=payload_hash,
+                response=response,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "control_plane_migrate_idempotent_persist_failed_after_enqueue",
+                project_id=project_id,
+                job_id=job_id,
+                error=str(exc),
+            )
+    except Exception:
+        if not enqueued:
+            await _release_idempotent_control_plane_slot(
+                namespace="cp_migrate_inline_to_object",
+                project_id=project_id,
+                idempotency_key=idempotency_key,
+            )
+        raise
     await _audit_control_plane(
         session,
         action="control-plane/migrate-inline-to-object.run",
@@ -2202,11 +2427,17 @@ async def rotate_token_route(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
 
     now = datetime.now(timezone.utc)
-    old_revoked_at = old_token.get("revoked_at")
+    old_revoked_at = _coerce_datetime(old_token.get("revoked_at"))
     if old_revoked_at is not None and old_revoked_at <= now:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot rotate a revoked token",
+        )
+    old_expires_at = _coerce_datetime(old_token.get("expires_at"))
+    if old_expires_at is not None and old_expires_at <= now:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot rotate an expired token",
         )
 
     old_token = await set_token_revoked_at(
@@ -2218,7 +2449,7 @@ async def rotate_token_route(
     token_new_id, plaintext, prefix, token_hash, scopes, _, expires_at = _build_token_create_payload(
         project_id=project_id,
         plan=project["plan"],
-        expires_at=None,
+        expires_at=old_expires_at,
         scopes=list(old_token.get("scopes") or []) or None,
     )
     new_token = await create_token(

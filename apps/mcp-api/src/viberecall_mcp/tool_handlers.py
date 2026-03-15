@@ -56,6 +56,7 @@ from viberecall_mcp.repositories.operations import (
     create_outbox_event,
     get_operation as get_operation_record,
 )
+from viberecall_mcp.repositories.projects import resolve_memory_scope_project_ids
 from viberecall_mcp.repositories.usage_events import get_monthly_vibe_tokens
 from viberecall_mcp.repositories.working_memory import (
     get_working_memory,
@@ -302,6 +303,182 @@ def _resolve_memory_scope(arguments: dict) -> tuple[str, str]:
     if requested not in _MEMORY_SCOPES:
         raise ValueError("memory_scope must be one of: project, linked, org")
     return requested, "project"
+
+
+async def _resolve_memory_scope_context(
+    *,
+    session,
+    project_id: str,
+    arguments: dict,
+) -> tuple[str, str, list[str]]:
+    requested, _ = _resolve_memory_scope(arguments)
+    project_ids, scope_applied = await resolve_memory_scope_project_ids(
+        session,
+        project_id=project_id,
+        requested_scope=requested,
+    )
+    unique_ids: list[str] = []
+    seen: set[str] = set()
+    for candidate in project_ids:
+        normalized = str(candidate).strip()
+        if not normalized or normalized in seen:
+            continue
+        unique_ids.append(normalized)
+        seen.add(normalized)
+    if not unique_ids:
+        unique_ids = [project_id]
+    return requested, scope_applied, unique_ids
+
+
+async def _search_canonical_memory_scoped(
+    session,
+    *,
+    project_ids: list[str],
+    query: str,
+    filters: dict | None,
+    sort: str,
+    limit: int,
+    offset: int,
+) -> list[dict]:
+    if len(project_ids) <= 1:
+        return await search_canonical_memory(
+            session,
+            project_id=project_ids[0],
+            query=query,
+            filters=filters,
+            sort=sort,
+            limit=limit,
+            offset=offset,
+        )
+    fetch_limit = max(limit + offset + 1, limit + 1)
+    merged: list[dict] = []
+    for candidate_project_id in project_ids:
+        merged.extend(
+            await search_canonical_memory(
+                session,
+                project_id=candidate_project_id,
+                query=query,
+                filters=filters,
+                sort=sort,
+                limit=fetch_limit,
+                offset=0,
+            )
+        )
+    merged.sort(key=_search_result_sort_key, reverse=True)
+    return merged[offset : offset + limit + 1]
+
+
+async def _search_canonical_entities_scoped(
+    session,
+    *,
+    project_ids: list[str],
+    query: str,
+    entity_kinds,
+    salience_classes,
+    limit: int,
+) -> list[dict]:
+    if len(project_ids) <= 1:
+        payload = await search_canonical_entities(
+            session,
+            project_id=project_ids[0],
+            query=query,
+            entity_kinds=entity_kinds,
+            salience_classes=salience_classes,
+            limit=limit,
+        )
+        return [_entity_payload(item) for item in list(payload.get("entities") or [])[:limit]]
+    ranked: dict[str, dict] = {}
+    for candidate_project_id in project_ids:
+        payload = await search_canonical_entities(
+            session,
+            project_id=candidate_project_id,
+            query=query,
+            entity_kinds=entity_kinds,
+            salience_classes=salience_classes,
+            limit=limit,
+        )
+        for item in list(payload.get("entities") or []):
+            entity = _entity_payload(item)
+            entity_id = entity["entity_id"]
+            if not entity_id or entity_id in ranked:
+                continue
+            ranked[entity_id] = entity
+            if len(ranked) >= limit:
+                return list(ranked.values())
+    return list(ranked.values())
+
+
+async def _list_timeline_episodes_scoped(
+    session,
+    *,
+    project_ids: list[str],
+    from_time,
+    to_time,
+    limit: int,
+    offset: int,
+) -> list[dict]:
+    if len(project_ids) <= 1:
+        return await list_timeline_episodes(
+            session,
+            project_id=project_ids[0],
+            from_time=from_time,
+            to_time=to_time,
+            limit=limit,
+            offset=offset,
+        )
+    fetch_limit = max(limit + offset + 1, limit + 1)
+    merged: list[dict] = []
+    for candidate_project_id in project_ids:
+        merged.extend(
+            await list_timeline_episodes(
+                session,
+                project_id=candidate_project_id,
+                from_time=from_time,
+                to_time=to_time,
+                limit=fetch_limit,
+                offset=0,
+            )
+        )
+    merged.sort(key=_episode_context_sort_key, reverse=True)
+    return merged[offset : offset + limit + 1]
+
+
+async def _list_recent_raw_episodes_scoped(
+    session,
+    *,
+    project_ids: list[str],
+    query: str,
+    window_seconds: int,
+    limit: int,
+    offset: int,
+) -> list[dict]:
+    if len(project_ids) <= 1:
+        return await list_recent_raw_episodes(
+            session,
+            project_id=project_ids[0],
+            query=query,
+            window_seconds=window_seconds,
+            limit=limit,
+            offset=offset,
+        )
+    fetch_limit = max(limit + offset + 1, limit + 1)
+    merged: list[dict] = []
+    for candidate_project_id in project_ids:
+        merged.extend(
+            await list_recent_raw_episodes(
+                session,
+                project_id=candidate_project_id,
+                query=query,
+                window_seconds=window_seconds,
+                limit=fetch_limit,
+                offset=0,
+            )
+        )
+    merged.sort(
+        key=lambda item: (str(item.get("ingested_at") or ""), str(item.get("episode_id") or "")),
+        reverse=True,
+    )
+    return merged[offset : offset + limit + 1]
 
 
 def _entity_payload(entity: dict | str) -> dict:
