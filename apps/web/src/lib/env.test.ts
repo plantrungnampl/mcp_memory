@@ -48,6 +48,32 @@ test("resolvePublicEnv enables Supabase only when both public values are present
   assert.equal(missingKey.hasSupabase, false);
 });
 
+test("resolvePublicEnv exposes production mode from APP_ENV or VERCEL_ENV", async () => {
+  const { resolvePublicEnv } = await import("./env");
+
+  const viaAppEnv = resolvePublicEnv({
+    APP_ENV: "production",
+    NEXT_PUBLIC_MARKETING_URL: "https://www.example.com",
+    NEXT_PUBLIC_APP_URL: "https://app.example.com",
+    NEXT_PUBLIC_DOCS_URL: "https://docs.example.com",
+    NEXT_PUBLIC_MCP_BASE_URL: "https://api.example.com",
+  });
+  const viaVercelEnv = resolvePublicEnv({
+    VERCEL_ENV: "production",
+    NEXT_PUBLIC_MARKETING_URL: "https://www.example.com",
+    NEXT_PUBLIC_APP_URL: "https://app.example.com",
+    NEXT_PUBLIC_DOCS_URL: "https://docs.example.com",
+    NEXT_PUBLIC_MCP_BASE_URL: "https://api.example.com",
+  });
+  const development = resolvePublicEnv({
+    APP_ENV: "development",
+  });
+
+  assert.equal(viaAppEnv.isProduction, true);
+  assert.equal(viaVercelEnv.isProduction, true);
+  assert.equal(development.isProduction, false);
+});
+
 test("resolveServerEnv requires explicit control plane api base url", async () => {
   process.env.CONTROL_PLANE_API_BASE_URL = "https://api.example.com";
   process.env.CONTROL_PLANE_INTERNAL_SECRET = "test-secret";

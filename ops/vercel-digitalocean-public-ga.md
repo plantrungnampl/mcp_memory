@@ -112,6 +112,7 @@ Set or confirm these values in `.env.production` on the Droplet:
 
 Important:
 
+- treat these values as production-only; do not copy them into local `.env` or preview shells
 - `CONTROL_PLANE_INTERNAL_SECRET` must match exactly between Vercel and the Droplet.
 - The DigitalOcean compose file overrides `OBJECT_LOCAL_DIR` and `EXPORT_LOCAL_DIR` to volume-backed paths automatically.
 - Postgres remains external in this topology.

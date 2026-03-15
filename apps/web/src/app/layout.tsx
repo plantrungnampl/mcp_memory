@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 
 import { Providers } from "@/components/providers";
+import { publicEnv } from "@/lib/env";
 import {
   BRAND_NAME,
   CONTROL_PLANE_DESCRIPTION,
@@ -36,6 +38,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <Providers>{children}</Providers>
+        {publicEnv.isProduction ? <Analytics /> : null}
       </body>
     </html>
   );

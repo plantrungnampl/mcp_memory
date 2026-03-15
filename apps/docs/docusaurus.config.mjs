@@ -17,6 +17,9 @@ const config = {
   favicon: "img/favicon.svg",
   url: resolvedDocsOrigin,
   baseUrl: "/",
+  customFields: {
+    enableVercelAnalytics: isProductionEnv,
+  },
   noIndex: !isProductionEnv,
   onBrokenLinks: "throw",
   markdown: {

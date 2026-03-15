@@ -59,6 +59,14 @@ uv run uvicorn viberecall_mcp.app:create_app --factory --reload --port 8010
 - Control-plane plan/billing metadata still exists outside MCP runtime and may continue to show `free|pro|team`.
 - Backend config reads the repository root `/.env` by default; if it does not exist, it falls back to `apps/mcp-api/.env`.
 - Process-level environment variables override `.env`. If you previously exported `FALKORDB_HOST`, `FALKORDB_PORT`, `MEMORY_BACKEND`, or queue/KV vars in your shell, the running process may ignore values from `/.env`.
+- Treat the root `/.env` as development-only and keep it on a separate Supabase/Postgres target from production.
+- Optional development safety guards are available:
+  - `PRODUCTION_SUPABASE_PROJECT_REF=<prod-project-ref>`
+  - `PRODUCTION_DATABASE_HOST=<prod-db-host>`
+  - `PRODUCTION_DATABASE_NAME=<prod-db-name>`
+  - the Supabase guard expects the canonical `*.supabase.co` project URL shape
+  - the database guard requires both host and database name together
+  - when `APP_ENV=development`, backend startup fails fast if `NEXT_PUBLIC_SUPABASE_URL` or `DATABASE_URL` matches those production identifiers
 - Runtime backend selection is explicit:
   - `MEMORY_BACKEND=local|falkordb|graphiti`
   - `KV_BACKEND=local|redis`

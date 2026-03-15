@@ -1,4 +1,5 @@
 type PublicEnv = {
+  isProduction: boolean;
   marketingUrl: string;
   appUrl: string;
   docsUrl: string;
@@ -57,8 +58,10 @@ export function resolvePublicEnv(env: PublicEnvSource): PublicEnv {
   const mcpBaseUrl = readPublicUrl(env, "NEXT_PUBLIC_MCP_BASE_URL");
   const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
   const supabasePublishableKey = env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
+  const production = isProductionEnv(env);
 
   return {
+    isProduction: production,
     marketingUrl,
     appUrl,
     docsUrl,

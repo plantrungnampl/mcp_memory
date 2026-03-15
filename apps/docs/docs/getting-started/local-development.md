@@ -48,6 +48,22 @@ At minimum, local development needs:
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
+Recommended environment split:
+
+- keep local/dev on a separate Supabase project from production
+- keep local `DATABASE_URL` on a separate Postgres target from production
+- do not reuse production service-role keys or production callback URLs in local `.env`
+
+Optional local safety guards:
+
+- `PRODUCTION_SUPABASE_PROJECT_REF=<prod-project-ref>`
+- `PRODUCTION_DATABASE_HOST=<prod-db-host>`
+- `PRODUCTION_DATABASE_NAME=<prod-db-name>`
+
+The Supabase guard expects the canonical `*.supabase.co` project URL shape. The database guard activates only when both `PRODUCTION_DATABASE_HOST` and `PRODUCTION_DATABASE_NAME` are set.
+
+When those values are set and `APP_ENV=development`, backend startup fails fast if local env accidentally points at the production Supabase project or production database target.
+
 Important local docs note:
 
 - the web app no longer renders docs content directly

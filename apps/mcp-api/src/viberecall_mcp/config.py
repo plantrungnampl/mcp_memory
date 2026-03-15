@@ -2,6 +2,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +26,59 @@ _GRAPHITI_API_KEY_PLACEHOLDERS = {
 }
 
 
+def _extract_supabase_project_ref(url: str) -> str:
+    candidate = url.strip()
+    if not candidate:
+        return ""
+
+    try:
+        hostname = urlsplit(candidate).hostname or ""
+    except ValueError:
+        return ""
+
+    host = hostname.strip().lower()
+    if not host.endswith(".supabase.co"):
+        return ""
+
+    project_ref = host[: -len(".supabase.co")].strip(".")
+    return project_ref.split(".", 1)[0]
+
+
+def _parse_database_target(database_url: str) -> tuple[str, str]:
+    candidate = database_url.strip()
+    if not candidate:
+        return "", ""
+
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return "", ""
+
+    hostname = (parsed.hostname or "").strip().lower()
+    database_name = parsed.path.removeprefix("/").strip()
+    return hostname, database_name
+
+
+def _matches_production_database_target(
+    database_url: str,
+    production_host: str,
+    production_database_name: str,
+) -> bool:
+    expected_host = production_host.strip().lower()
+    expected_database_name = production_database_name.strip()
+    if not expected_host or not expected_database_name:
+        return False
+
+    current_host, current_database_name = _parse_database_target(database_url)
+    if current_host != expected_host:
+        return False
+
+    if current_database_name != expected_database_name:
+        return False
+
+    return True
+
+
 def resolve_env_file() -> str:
     root_env = REPO_ROOT / ".env"
     if root_env.exists():
@@ -40,7 +94,11 @@ def resolve_env_file() -> str:
 class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "info"
+    next_public_supabase_url: str = ""
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/viberecall"
+    production_supabase_project_ref: str = ""
+    production_database_host: str = ""
+    production_database_name: str = ""
     token_pepper: str = "change-me"
     falkordb_host: str = "localhost"
     falkordb_port: int = 6380
@@ -119,6 +177,33 @@ class Settings(BaseSettings):
             raise ValueError("; ".join(violations))
 
         if self.app_env.lower() == "development":
+            production_database_host = self.production_database_host.strip()
+            production_database_name = self.production_database_name.strip()
+            if bool(production_database_host) != bool(production_database_name):
+                violations.append(
+                    "PRODUCTION_DATABASE_HOST and PRODUCTION_DATABASE_NAME must be configured together when APP_ENV=development"
+                )
+
+            if (
+                self.production_supabase_project_ref.strip()
+                and _extract_supabase_project_ref(self.next_public_supabase_url)
+                == self.production_supabase_project_ref.strip().lower()
+            ):
+                violations.append(
+                    "NEXT_PUBLIC_SUPABASE_URL must not point to the production Supabase project when APP_ENV=development"
+                )
+
+            if _matches_production_database_target(
+                self.database_url,
+                production_database_host,
+                production_database_name,
+            ):
+                violations.append(
+                    "DATABASE_URL must not point to the production database target when APP_ENV=development"
+                )
+
+            if violations:
+                raise ValueError("; ".join(violations))
             return self
 
         if self.database_url.strip() in _LOCAL_DATABASE_URL_PLACEHOLDERS:

@@ -1,0 +1,51 @@
+# Codex CLI multi-agent configuration
+# Place this file at: .codex/config.toml
+
+project_doc_fallback_filenames = ["TEAM_GUIDE.md", ".agents.md"]
+project_doc_max_bytes = 65536
+project_root_markers = [".git", ".codex"]
+review_model = "gpt-5.4"
+
+[features]
+multi_agent = true
+
+[agents]
+max_threads = 6
+max_depth = 1
+job_max_runtime_seconds = 2400
+
+[agents.explorer]
+description = "Read-only explorer for mapping code paths, dependencies, request flow, and ownership before any edits happen."
+config_file = "agents/explorer.toml"
+
+[agents.frontend_reviewer]
+description = "Read-only reviewer for Next.js 16, App Router, rendering, state, routing, and UI correctness."
+config_file = "agents/frontend-reviewer.toml"
+
+[agents.backend_reviewer]
+description = "Read-only reviewer for Python API logic, validation, typing, error handling, and test risk."
+config_file = "agents/backend-reviewer.toml"
+
+[agents.contract_reviewer]
+description = "Read-only reviewer for the frontend-backend contract between apps/web and apps/mcp-api: request shape, response shape, auth, and cache assumptions."
+config_file = "agents/contract-reviewer.toml"
+
+[agents.security_reviewer]
+description = "Read-only reviewer for auth, authorization, session handling, config exposure, and security-sensitive request flows."
+config_file = "agents/security-reviewer.toml"
+
+[agents.browser_debugger]
+description = "UI debugger for reproducing browser issues and collecting evidence without editing app code."
+config_file = "agents/browser-debugger.toml"
+
+[agents.monitor]
+description = "Read-only monitor for long-running tests, servers, logs, and polling workflows."
+config_file = "agents/monitor.toml"
+
+[agents.research]
+description = "Read-only research agent for specs, docs, architecture notes, external references, and evidence gathering before implementation."
+config_file = "agents/research.toml"
+
+[agents.worker]
+description = "Single write-capable implementation agent that makes the smallest safe code change once the issue is understood."
+config_file = "agents/worker.toml"

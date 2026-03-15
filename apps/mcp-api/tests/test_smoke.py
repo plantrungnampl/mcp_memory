@@ -79,6 +79,67 @@ def test_settings_accept_graphiti_api_key_when_graphiti_backend_enabled() -> Non
     assert settings.graphiti_api_key == "sk-test-graphiti"
 
 
+def test_settings_reject_development_supabase_project_matching_production_guard() -> None:
+    with pytest.raises(
+        ValueError,
+        match="NEXT_PUBLIC_SUPABASE_URL must not point to the production Supabase project when APP_ENV=development",
+    ):
+        Settings(
+            _env_file=None,
+            app_env="development",
+            next_public_supabase_url="https://prod-ref.supabase.co",
+            production_supabase_project_ref="prod-ref",
+            control_plane_internal_secret="test-control-plane-secret",
+            token_pepper="test-token-pepper",
+        )
+
+
+def test_settings_reject_development_database_target_matching_production_guard() -> None:
+    with pytest.raises(
+        ValueError,
+        match="DATABASE_URL must not point to the production database target when APP_ENV=development",
+    ):
+        Settings(
+            _env_file=None,
+            app_env="development",
+            database_url="postgresql+asyncpg://dev:secret@db.prod.example.com:5432/viberecall",
+            production_database_host="db.prod.example.com",
+            production_database_name="viberecall",
+            control_plane_internal_secret="test-control-plane-secret",
+            token_pepper="test-token-pepper",
+        )
+
+
+def test_settings_require_complete_database_guard_in_development() -> None:
+    with pytest.raises(
+        ValueError,
+        match="PRODUCTION_DATABASE_HOST and PRODUCTION_DATABASE_NAME must be configured together when APP_ENV=development",
+    ):
+        Settings(
+            _env_file=None,
+            app_env="development",
+            production_database_host="db.prod.example.com",
+            control_plane_internal_secret="test-control-plane-secret",
+            token_pepper="test-token-pepper",
+        )
+
+
+def test_settings_accept_development_targets_when_guards_point_elsewhere() -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="development",
+        next_public_supabase_url="https://dev-ref.supabase.co",
+        production_supabase_project_ref="prod-ref",
+        database_url="postgresql+asyncpg://dev:secret@db.shared.example.com:5432/viberecall_dev",
+        production_database_host="db.shared.example.com",
+        production_database_name="viberecall_prod",
+        control_plane_internal_secret="test-control-plane-secret",
+        token_pepper="test-token-pepper",
+    )
+
+    assert settings.app_env == "development"
+
+
 def test_settings_default_index_roots_fall_back_to_repo_root() -> None:
     settings = Settings(
         _env_file=None,
