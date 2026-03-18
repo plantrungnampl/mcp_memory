@@ -74,6 +74,16 @@ test("resolvePublicEnv exposes production mode from APP_ENV or VERCEL_ENV", asyn
   assert.equal(development.isProduction, false);
 });
 
+test("resolvePublicEnv keeps preview deployments out of production observability", async () => {
+  const { resolvePublicEnv } = await import("./env");
+
+  const preview = resolvePublicEnv({
+    VERCEL_ENV: "preview",
+  });
+
+  assert.equal(preview.isProduction, false);
+});
+
 test("resolveServerEnv requires explicit control plane api base url", async () => {
   process.env.CONTROL_PLANE_API_BASE_URL = "https://api.example.com";
   process.env.CONTROL_PLANE_INTERNAL_SECRET = "test-secret";
