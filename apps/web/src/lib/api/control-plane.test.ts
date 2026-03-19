@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 test("mapProjectIndexSummary converts snake_case payloads", async () => {
-  const { mapProjectIndexSummary } = await import("./control-plane");
+  process.env.CONTROL_PLANE_API_BASE_URL = "http://localhost:8010";
+  process.env.CONTROL_PLANE_INTERNAL_SECRET = "test-control-plane-secret";
+
+  const { mapProjectIndexSummary } = await import("./control-plane-shared");
 
   const summary = mapProjectIndexSummary({
     status: "stalled",

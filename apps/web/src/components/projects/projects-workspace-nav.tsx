@@ -4,12 +4,15 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Activity, BarChart3, FolderKanban, Orbit, TerminalSquare } from "lucide-react";
 import type { ComponentType, MouseEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
 import {
-  PROJECT_STORAGE_KEY,
   resolveProjectNavigationState,
 } from "@/components/projects/project-selection";
+import {
+  useStoredProjectId,
+  writeStoredProjectId,
+} from "@/components/projects/project-storage";
 import type { ProjectSummary } from "@/lib/api/types";
 
 type ProjectsWorkspaceNavProps = {
@@ -39,7 +42,7 @@ export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWork
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [storedProjectId, setStoredProjectId] = useState<string | null>(null);
+  const storedProjectId = useStoredProjectId();
   const isDirectoryPath = pathname === "/projects";
   const knownProjectIds = useMemo(() => new Set(projects.map((project) => project.id)), [projects]);
   const { selectedProjectId, resolvedProjectId, shouldHydrateDirectoryQuery } =
@@ -51,10 +54,6 @@ export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWork
       projects,
     });
 
-  useEffect(() => {
-    setStoredProjectId(window.localStorage.getItem(PROJECT_STORAGE_KEY));
-  }, [pathname]);
-
   const navProjectId = resolvedProjectId;
   const projectsHref = navProjectId ? `/projects?project=${encodeURIComponent(navProjectId)}` : "/projects";
 
@@ -62,14 +61,14 @@ export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWork
     if (!navProjectId || (isDirectoryPath && !selectedProjectId)) {
       return;
     }
-    window.localStorage.setItem(PROJECT_STORAGE_KEY, navProjectId);
+    writeStoredProjectId(navProjectId);
   }, [isDirectoryPath, navProjectId, selectedProjectId]);
 
   useEffect(() => {
     if (!isDirectoryPath || !shouldHydrateDirectoryQuery || projects.length === 0) {
       return;
     }
-    const nextProjectId = storedProjectId ?? window.localStorage.getItem(PROJECT_STORAGE_KEY);
+    const nextProjectId = storedProjectId;
     if (!nextProjectId || !knownProjectIds.has(nextProjectId)) {
       return;
     }
@@ -93,7 +92,7 @@ export function ProjectsWorkspaceNav({ projects, activeProjectId }: ProjectsWork
       return;
     }
 
-    window.localStorage.setItem(PROJECT_STORAGE_KEY, nextProjectId);
+    writeStoredProjectId(nextProjectId);
 
     if (isDirectoryPath) {
       const params = new URLSearchParams(searchParams.toString());

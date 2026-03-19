@@ -4,7 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { PROJECT_STORAGE_KEY } from "@/components/projects/project-selection";
+import { writeStoredProjectId } from "@/components/projects/project-storage";
 import type { ProjectSummary } from "@/lib/api/types";
 
 function extractPathProjectId(pathname: string): string | null {
@@ -42,7 +42,7 @@ export function ProjectSwitcher({ projects, activeProjectId }: ProjectSwitcherPr
     if (!knownProjectIds.has(nextProjectId)) {
       return;
     }
-    window.localStorage.setItem(PROJECT_STORAGE_KEY, nextProjectId);
+    writeStoredProjectId(nextProjectId);
 
     const segments = pathname.split("/").filter(Boolean);
     const suffix = segments[0] === "projects" && pathProjectId ? segments.slice(2).join("/") : "";

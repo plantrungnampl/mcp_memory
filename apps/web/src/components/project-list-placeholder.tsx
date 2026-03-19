@@ -7,7 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FolderKanban, Plus } from "lucide-react";
 
 import type { ProjectActionState } from "@/app/projects/action-types";
-import { PROJECT_STORAGE_KEY } from "@/components/projects/project-selection";
+import { writeStoredProjectId } from "@/components/projects/project-storage";
 import type { ProjectSummary } from "@/lib/api/types";
 import { projectQueryKeys } from "@/lib/query/keys";
 
@@ -106,7 +106,7 @@ export function ProjectListPlaceholder({
       queryKey: projectQueryKeys.directory(),
     });
 
-    window.localStorage.setItem(PROJECT_STORAGE_KEY, createdProjectMcpData.projectId);
+    writeStoredProjectId(createdProjectMcpData.projectId);
 
     const nextSearchParams = new URLSearchParams(searchParams.toString());
     nextSearchParams.set("project", createdProjectMcpData.projectId);
